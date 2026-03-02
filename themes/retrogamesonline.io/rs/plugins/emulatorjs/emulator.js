@@ -183,23 +183,20 @@ var EJS = function(_0x574f5e) {
       var _0x5362f2 = function() {
         var _0x49c27d = new RegExp('\x5c\x77\x2b\x20\x2a\x5c\x28\x5c\x29\x20\x2a\x7b\x5c\x77\x2b\x20\x2a\x5b\x27\x7c\x22\x5d\x2e\x2b\x5b\x27\x7c\x22\x5d\x3b\x3f\x20\x2a\x7d');
         return !_0x49c27d['\x74\x65\x73\x74'](_0x4117de['\x74\x6f\x53\x74\x72\x69\x6e\x67']());
-      };
+     };
+      // StaticQuasar931 fixed this stuff---
       var _0x59686f = function() {
-        var _0x53810b = new RegExp('\x28\x5c\x5c\x5b\x78\x7c\x75\x5d\x28\x5c\x77\x29\x7b\x32\x2c\x34\x7d\x29\x2b');
-        return _0x53810b['\x74\x65\x73\x74'](_0x16a049['\x74\x6f\x53\x74\x72\x69\x6e\x67']());
+        return true;
       };
+
       var _0x2bd09e = function(_0x41857f) {
-        var _0x35b8c8 = ~-0x1 >> 0x1 + 0xff % 0x0;
-        if (_0x41857f['\x69\x6e\x64\x65\x78\x4f\x66']('\x69' === _0x35b8c8)) {
-          _0x4b4084(_0x41857f);
-        }
+        return;
       };
+
       var _0x4b4084 = function(_0x312ed5) {
-        var _0x573399 = ~-0x4 >> 0x1 + 0xff % 0x0;
-        if (_0x312ed5['\x69\x6e\x64\x65\x78\x4f\x66']((!![] + '')[0x3]) !== _0x573399) {
-          _0x2bd09e(_0x312ed5);
-        }
+        return;
       };
+
       if (!_0x5362f2()) {
         if (!_0x59686f()) {
           _0x2bd09e('\x69\x6e\x64\u0435\x78\x4f\x66');
