@@ -184,7 +184,7 @@ var EJS = function(_0x574f5e) {
         var _0x49c27d = new RegExp('\x5c\x77\x2b\x20\x2a\x5c\x28\x5c\x29\x20\x2a\x7b\x5c\x77\x2b\x20\x2a\x5b\x27\x7c\x22\x5d\x2e\x2b\x5b\x27\x7c\x22\x5d\x3b\x3f\x20\x2a\x7d');
         return !_0x49c27d['\x74\x65\x73\x74'](_0x4117de['\x74\x6f\x53\x74\x72\x69\x6e\x67']());
      };
-      // StaticQuasar931 fixed this stuff---
+      // StaticQuasar931 patch: disable recursion-based anti-debug loop
       var _0x59686f = function() {
         return true;
       };
