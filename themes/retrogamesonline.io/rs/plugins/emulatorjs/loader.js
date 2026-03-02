@@ -197,10 +197,67 @@ var loader = function(_0x3f3e4d) {
   395: function(_0x316d65, _0x16e76b, _0x1f8b30) {
     'use strict';
     _0x1f8b30['r'](_0x16e76b);
-    var _0x2fbf67, _0x59b8a1, _0x3c68b9, _0x44b634, _0x2766bb, _0x46b578 = _0x1f8b30(0x38);
-    window, _0x2fbf67 = document, _0x59b8a1 = 'script', _0x3c68b9 = [EJS_pathtodata + 'emulator.js?v=', _0x46b578['a']][_0x4e1f('0x19', 'dT&&')](''), _0x44b634 = _0x2fbf67[_0x4e1f('0x1a', '!4ad')](_0x59b8a1), _0x2766bb = _0x2fbf67[_0x4e1f('0x1b', '%y@C')](_0x59b8a1)[0x0], _0x44b634[_0x4e1f('0x1c', 'B^qF')] = 0x1, _0x44b634['src'] = _0x3c68b9, _0x2766bb[_0x4e1f('0x1d', 'VqZ7')]['insertBefore'](_0x44b634, _0x2766bb), _0x44b634[_0x4e1f('0x1e', '@G9C')] = function() {
-      var _0x316d65 = {};
-      _0x316d65[_0x4e1f('0x1f', 'lTHs')] = EJS_gameUrl, _0x4e1f('0x20', 'Zn6#') != typeof EJS_biosUrl && (_0x316d65['biosUrl'] = EJS_biosUrl), _0x4e1f('0x21', 'lTHs') != typeof EJS_gameID && (_0x316d65['gameId'] = EJS_gameID), _0x4e1f('0x22', '2tYP') != typeof EJS_gameParentUrl && (_0x316d65[_0x4e1f('0x23', 'Mrqk')] = EJS_gameParentUrl), _0x4e1f('0x24', 'B^qF') != typeof EJS_gamePatchUrl && (_0x316d65[_0x4e1f('0x25', '[7fg')] = EJS_gamePatchUrl), _0x316d65['system'] = EJS_core, _0x316d65[_0x4e1f('0x26', '5Wvf')] = null, _0x316d65['onloadstate'] = null, _0x4e1f('0x27', 'iZmJ') != typeof EJS_onSaveState && (_0x316d65[_0x4e1f('0x28', 'yEq%')] = EJS_onSaveState), _0x4e1f('0x20', 'Zn6#') != typeof EJS_onLoadState && (_0x316d65['onloadstate'] = EJS_onLoadState), _0x4e1f('0x29', 'UFV*') != typeof EJS_lightgun && (_0x316d65[_0x4e1f('0x2a', 'B^qF')] = EJS_lightgun), _0x4e1f('0x2b', '93uJ') != typeof EJS_mouse && (_0x316d65[_0x4e1f('0x2c', 'BtKl')] = EJS_mouse), _0x4e1f('0x2d', '[7fg') != typeof EJS_multitap && (_0x316d65[_0x4e1f('0x2e', '%y@C')] = EJS_multitap), _0x4e1f('0x2f', '3r7P') != typeof EJS_playerName && (_0x316d65[_0x4e1f('0x30', 'AhBT')] = EJS_playerName), _0x4e1f('0x31', 'SYvu') != typeof EJS_cheats && (_0x316d65[_0x4e1f('0x32', '3r7P')] = EJS_cheats), _0x4e1f('0x2d', '[7fg') != typeof EJS_color && (_0x316d65[_0x4e1f('0x33', '93uJ')] = EJS_color), window[_0x4e1f('0x34', '[7fg')] = new EJS(EJS_player, _0x316d65), 'undefined' != typeof EJS_onGameStart && EJS_emulator['on']('start-game', EJS_onGameStart);
+
+    // load emulator.js then construct EJS safely
+    var _0x2fbf67 = document;
+    var _0x59b8a1 = 'script';
+    var _0x46b578 = _0x1f8b30(0x38);
+
+    // Build emulator.js URL (keep your obfuscated join call)
+    var _0x3c68b9 = [EJS_pathtodata + 'emulator.js?v=', _0x46b578['a']][_0x4e1f('0x19', 'dT&&')]('');
+
+    var _0x44b634 = _0x2fbf67[_0x4e1f('0x1a', '!4ad')](_0x59b8a1);
+    var _0x2766bb = _0x2fbf67[_0x4e1f('0x1b', '%y@C')](_0x59b8a1)[0x0];
+
+    _0x44b634[_0x4e1f('0x1c', 'B^qF')] = 0x1; // async
+    _0x44b634['src'] = _0x3c68b9;
+
+    // NEW: clear error if emulator.js fails to load
+    _0x44b634['onerror'] = function(_0xerr) {
+      console['error']('Failed to load emulator.js:', _0x3c68b9, _0xerr);
+      throw new Error('emulator.js failed to load: ' + _0x3c68b9);
+    };
+
+    _0x2766bb[_0x4e1f('0x1d', 'VqZ7')]['insertBefore'](_0x44b634, _0x2766bb);
+
+    // onload: create config + build emulator instance
+    _0x44b634[_0x4e1f('0x1e', '@G9C')] = function() {
+      var _0xcfg = {};
+
+      _0xcfg[_0x4e1f('0x1f', 'lTHs')] = EJS_gameUrl;
+      _0x4e1f('0x20', 'Zn6#') != typeof EJS_biosUrl && (_0xcfg['biosUrl'] = EJS_biosUrl);
+      _0x4e1f('0x21', 'lTHs') != typeof EJS_gameID && (_0xcfg['gameId'] = EJS_gameID);
+      _0x4e1f('0x22', '2tYP') != typeof EJS_gameParentUrl && (_0xcfg[_0x4e1f('0x23', 'Mrqk')] = EJS_gameParentUrl);
+      _0x4e1f('0x24', 'B^qF') != typeof EJS_gamePatchUrl && (_0xcfg[_0x4e1f('0x25', '[7fg')] = EJS_gamePatchUrl);
+
+      _0xcfg['system'] = EJS_core;
+      _0xcfg[_0x4e1f('0x26', '5Wvf')] = null;
+      _0xcfg['onloadstate'] = null;
+
+      _0x4e1f('0x27', 'iZmJ') != typeof EJS_onSaveState && (_0xcfg[_0x4e1f('0x28', 'yEq%')] = EJS_onSaveState);
+      _0x4e1f('0x20', 'Zn6#') != typeof EJS_onLoadState && (_0xcfg['onloadstate'] = EJS_onLoadState);
+      _0x4e1f('0x29', 'UFV*') != typeof EJS_lightgun && (_0xcfg[_0x4e1f('0x2a', 'B^qF')] = EJS_lightgun);
+      _0x4e1f('0x2b', '93uJ') != typeof EJS_mouse && (_0xcfg[_0x4e1f('0x2c', 'BtKl')] = EJS_mouse);
+      _0x4e1f('0x2d', '[7fg') != typeof EJS_multitap && (_0xcfg[_0x4e1f('0x2e', '%y@C')] = EJS_multitap);
+      _0x4e1f('0x2f', '3r7P') != typeof EJS_playerName && (_0xcfg[_0x4e1f('0x30', 'AhBT')] = EJS_playerName);
+      _0x4e1f('0x31', 'SYvu') != typeof EJS_cheats && (_0xcfg[_0x4e1f('0x32', '3r7P')] = EJS_cheats);
+      _0x4e1f('0x2d', '[7fg') != typeof EJS_color && (_0xcfg[_0x4e1f('0x33', '93uJ')] = EJS_color);
+
+      // NEW: resolve constructor safely (EJS or EJS.default)
+      var _0xEJS_CTOR = window['EJS'];
+      if (_0xEJS_CTOR && typeof _0xEJS_CTOR === 'object' && typeof _0xEJS_CTOR['default'] === 'function') {
+        _0xEJS_CTOR = _0xEJS_CTOR['default'];
+      }
+
+      if (typeof _0xEJS_CTOR !== 'function') {
+        console['error']('EJS is missing after emulator.js load. URL:', _0x3c68b9);
+        console['error']('typeof window.EJS:', typeof window['EJS']);
+        throw new TypeError('EJS is not a constructor (missing)');
+      }
+
+      window['EJS_emulator'] = new _0xEJS_CTOR(EJS_player, _0xcfg);
+
+      'undefined' != typeof EJS_onGameStart && window['EJS_emulator']['on']('start-game', EJS_onGameStart);
     };
   },
   56: function(_0x258889, _0x2c8954, _0x2cdd3a) {
