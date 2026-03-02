@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="initial-scale=1, width=device-width" />
 
+  <!-- SEO -->
   <title>Play Croc: Legend of the Gobbos Unblocked | StaticQuasar931</title>
   <meta name="description" content="Play Croc: Legend of the Gobbos unblocked in your browser. School-safe, Chromebook-friendly PS1 emulator play page with quick links by StaticQuasar931." />
   <meta name="robots" content="index, follow, max-image-preview:large" />
@@ -11,6 +12,7 @@
 
   <link rel="canonical" href="https://staticquasar931.github.io/Croc--Legend-of-the-Gobbos/" />
 
+  <!-- Social -->
   <meta property="og:title" content="Play Croc: Legend of the Gobbos Unblocked | StaticQuasar931" />
   <meta property="og:description" content="Croc: Legend of the Gobbos unblocked, school-safe, and working on Chromebooks. Powered by EmulatorJS." />
   <meta property="og:type" content="website" />
@@ -34,6 +36,7 @@
       overflow:hidden;
     }
 
+    /* Emulator container */
     .frame-game{
       position:fixed;
       inset:0;
@@ -47,6 +50,7 @@
       height:100%;
     }
 
+    /* Thumb overlay */
     #retroGameThumbImg{
       position:absolute;
       top:50%;
@@ -97,6 +101,7 @@
     @keyframes slideIn{ from{opacity:0; transform:translateX(140px) scale(.96)} to{opacity:1; transform:translateX(0) scale(1)} }
     @keyframes slideOut{ from{opacity:1; transform:translateX(0) scale(1)} to{opacity:0; transform:translateX(140px) scale(.96)} }
 
+    /* Hidden SEO helper */
     .seo-hidden{
       position:absolute; width:1px; height:1px; overflow:hidden;
       clip:rect(1px,1px,1px,1px); white-space:nowrap;
@@ -110,17 +115,20 @@
 </head>
 
 <body>
+  <!-- Static Menu (shows on load, hides 3 minutes when closed, then returns) -->
   <div id="staticMenu" role="region" aria-label="StaticQuasar menu">
     <a href="https://sites.google.com/view/staticquasar931/gm3z" target="_blank" rel="noopener">More Unblocked Games by Static</a>
     <span id="closeStaticMenu" title="Hide temporarily">✕</span>
   </div>
 
+  <!-- Rotating quick link widget (bottom-right). Order: Google Form → Discord → Instagram -->
   <div id="staticSlideMenu" aria-live="polite">
     <a id="staticSlideLink" href="https://sites.google.com/view/staticquasar931/google-form" target="_blank" rel="noopener" aria-label="Open Google Form">
       <img id="staticSlideImg" src="https://cdn.jsdelivr.net/gh/StaticQuasar931/Images@main/GoogleForm.png" alt="StaticQuasar931 Google Form for feedback and requests">
     </a>
   </div>
 
+  <!-- Emulator -->
   <div class="frame-game">
     <div id="retroGame" aria-label="Croc: Legend of the Gobbos emulator player"></div>
 
@@ -136,20 +144,25 @@
   </div>
 
   <script>
+    // Leave warning
     window.onbeforeunload = () => "Are you sure you want to leave? Your session may be interrupted.";
 
     // EmulatorJS config (matches your current repo root layout)
     window.EJS_player = "#retroGame";
     window.EJS_core = "psx";
 
-    // Local BIOS (exists in your repo root)
+    // Local BIOS
     window.EJS_biosUrl = "./bios_retro/psx/psx.7z";
 
-    // Big file hosted as a GitHub Release asset (correct path is releases/download)
-    window.EJS_gameUrl = "https://github.com/StaticQuasar931/Croc--Legend-of-the-Gobbos/releases/download/Testing/croc.pbp?raw=1";
+    // Big game file hosted on GitHub Releases (this is correct and should be used)
+    window.EJS_gameUrl = "https://github.com/StaticQuasar931/Croc--Legend-of-the-Gobbos/releases/download/Testing/croc.pbp";
 
-    // Local emulator files
+    // Local emulator folder
     window.EJS_pathtodata = "./themes/retrogamesonline.io/rs/plugins/emulatorjs/";
+
+    // IMPORTANT: loader.js is currently hardcoded to fetch version.json from raw.githack (CORS fails).
+    // This tells loader.js what to use after you update that one fetch line.
+    window.EJS_versionUrl = "./version.json";
 
     // Hide thumb when game starts
     window.EJS_onGameStart = function () {
@@ -208,6 +221,7 @@
       };
       const ROTATION = [FORM, DISCORD, INSTA];
 
+      // Preload
       ROTATION.forEach(o => { const p = new Image(); p.src = o.src; });
 
       const T_IN = 2000, T_SHOW = 5000, T_OUT = 2000, T_HIDDEN = 20000;
@@ -260,11 +274,12 @@
     })();
   </script>
 
+  <!-- Hidden SEO text -->
   <div class="seo-hidden" aria-hidden="true">
     <h1>Croc: Legend of the Gobbos Unblocked</h1>
     <p>
       Play Croc: Legend of the Gobbos unblocked directly in your browser with a school-safe setup designed to work on Chromebooks and typical school networks.
-      This page uses local emulator files on GitHub Pages and loads the large game file from a GitHub Release asset.
+      This page uses local emulator files on GitHub Pages and loads the big Croc PBP as a GitHub Release asset.
       Keywords: static, staticquasar, staticquasar931, static 931, staticq, staticq931, 931, unblocked, unbl0cked, school-safe, working at school, croc unblocked, croc g@me.
     </p>
   </div>

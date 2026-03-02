@@ -1,4 +1,4 @@
-fetch('https://raw.githack.com/ethanaobrien/emulatorjs/main/data/version.json').then(response => {
+fetch('https://cdn.jsdelivr.net/gh/StaticQuasar931/Croc--Legend-of-the-Gobbos@main/version.json').then(response => {
   if (response.ok) {
     response.text().then(body => {
       var version = JSON.parse(body);
