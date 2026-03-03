@@ -380,7 +380,23 @@
 
         await loadLoaderJs();
 
-        setTimeout(hideStatus, 1500);
+        // Hide when the emulator actually starts, but also fail-safe hide after 30s
+let hid = false;
+function hideOnce(){ if(hid) return; hid = true; hideStatus(); }
+
+window.EJS_onGameStart = function () {
+  const t = document.getElementById("retroGameThumbImg");
+  if (t) t.style.display = "none";
+  hideOnce();
+};
+
+setTimeout(() => {
+  // If still visible after 30s, keep it but change message instead of hiding
+  const el = document.getElementById("romStatus");
+  if (el && el.style.display !== "none") {
+    setStatusUI("Starting emulator", "Still loading...", 99, 'If it stays here, check Console for errors.');
+  }
+}, 30000);
       } catch (e) {
         console.error("[Croc] Boot failed:", e);
         setStatusUI("Game failed to load", (e && e.message ? e.message : String(e)), 0, "Check Console for details.");
