@@ -231,7 +231,7 @@ function loadScript(src, timeoutMs) {
 
     // Compose emulator.js URL
     // If you want cache busting, keep a stable version string here.
-    var emuUrl = window.EJS_pathtodata + 'emulator.js?v=0.4.23&cb=' + Date.now();
+    var emuUrl = window.EJS_pathtodata + 'emulator.js?v=0.4.23';
 
     // Load emulator.js
     try {
