@@ -106,23 +106,63 @@
     #romStatus{
       position:fixed;
       left:50%;
-      top:10px;
+      bottom:18px;
       transform:translateX(-50%);
       z-index:99999;
-      font-size:13px;
-      padding:8px 12px;
-      border-radius:10px;
-      background:rgba(0,0,0,.55);
-      border:1px solid rgba(94,225,255,.25);
-      box-shadow:0 0 14px rgba(94,225,255,.25);
-      max-width:min(92vw, 720px);
+      font-size:15px;
+      padding:10px 14px;
+      border-radius:12px;
+      background:rgba(0,0,0,.62);
+      border:1px solid rgba(94,225,255,.28);
+      box-shadow:0 0 16px rgba(94,225,255,.28);
+      max-width:min(94vw, 820px);
       text-align:center;
       display:none;
+      backdrop-filter: blur(6px);
+    }
+    #romStatus .row{
+      display:flex;
+      gap:10px;
+      align-items:center;
+      justify-content:center;
+      flex-wrap:wrap;
+    }
+    #romStatus .title{
+      font-weight:800;
+      letter-spacing:.2px;
+    }
+    #romStatus .sub{
+      opacity:.9;
+      font-size:13px;
+    }
+    #romStatus .barWrap{
+      width:min(520px, 86vw);
+      height:10px;
+      border-radius:999px;
+      background:rgba(255,255,255,.10);
+      overflow:hidden;
+      border:1px solid rgba(255,255,255,.12);
+      box-shadow: inset 0 0 10px rgba(0,0,0,.45);
+      margin:8px auto 0;
+    }
+    #romStatus .bar{
+      height:100%;
+      width:0%;
+      border-radius:999px;
+      background:linear-gradient(90deg, rgba(94,225,255,.95), rgba(155,255,183,.85));
+      box-shadow:0 0 18px rgba(94,225,255,.25);
+      transition:width .18s ease;
+    }
+    #romStatus .mini{
+      opacity:.85;
+      font-size:12px;
+      margin-top:6px;
     }
 
     @media (max-width:600px){
       #staticMenu{ font-size:13px; padding:8px 12px }
       #staticSlideMenu{ width:88px; height:88px }
+      #romStatus{ font-size:14px; padding:10px 12px; bottom:14px }
     }
   </style>
 </head>
@@ -139,7 +179,7 @@
     </a>
   </div>
 
-  <div id="romStatus"></div>
+  <div id="romStatus" aria-live="polite"></div>
 
   <div class="frame-game">
     <div id="retroGame" aria-label="Croc: Legend of the Gobbos emulator player"></div>
@@ -162,6 +202,10 @@
     window.EJS_player = "#retroGame";
     window.EJS_core = "psx";
 
+    // HARD thread disable (some EmulatorJS builds read this)
+    window.EJS_threads = false;
+    window.EJS_pthreads = false;
+
     // BIOS (your existing local BIOS)
     window.EJS_biosUrl = "./bios_retro/psx/psx.7z";
 
@@ -178,44 +222,127 @@
     console.log("[Croc] EJS_core:", window.EJS_core);
     console.log("[Croc] EJS_pathtodata:", window.EJS_pathtodata);
 
-// -------------------------
-// ROM assembly (same-origin)
-// -------------------------
-const ROM_PARTS = [
-  "./big_data/ps/psx/croc.pbp.001",
-  "./big_data/ps/psx/croc.pbp.002",
-  "./big_data/ps/psx/croc.pbp.003",
-  "./big_data/ps/psx/croc.pbp.004"
-];
+    // -------------------------
+    // ROM assembly (same-origin)
+    // -------------------------
+    const ROM_PARTS = [
+      "./big_data/ps/psx/croc.pbp.001",
+      "./big_data/ps/psx/croc.pbp.002",
+      "./big_data/ps/psx/croc.pbp.003",
+      "./big_data/ps/psx/croc.pbp.004",
+      "./big_data/ps/psx/croc.pbp.005",
+      "./big_data/ps/psx/croc.pbp.006",
+      "./big_data/ps/psx/croc.pbp.007",
+      "./big_data/ps/psx/croc.pbp.008",
+      "./big_data/ps/psx/croc.pbp.009"
+    ];
 
-    function showStatus(msg) {
+    function fmtMB(bytes){
+      const mb = bytes / (1024 * 1024);
+      return mb.toFixed(mb >= 10 ? 0 : 1) + " MB";
+    }
+
+    function setStatusUI(title, sub, pct, extra){
       const el = document.getElementById("romStatus");
       if (!el) return;
+
+      const p = Math.max(0, Math.min(100, Number(pct) || 0));
       el.style.display = "block";
-      el.textContent = msg;
+      el.innerHTML = `
+        <div class="row">
+          <span class="title">${title || "Loading..."}</span>
+          <span class="sub">${sub || ""}</span>
+        </div>
+        <div class="barWrap" aria-hidden="true">
+          <div class="bar" style="width:${p}%"></div>
+        </div>
+        <div class="mini">${extra || ""}</div>
+      `;
     }
 
     function hideStatus() {
       const el = document.getElementById("romStatus");
       if (!el) return;
       el.style.display = "none";
+      el.textContent = "";
     }
 
-    async function fetchPart(url, idx, total) {
-      showStatus("Loading game file: part " + idx + " of " + total + " ...");
+    async function fetchPart(url, idx, total, loadedSoFar, totalBytesKnown) {
+      const label = "Downloading game files";
+      const sub = "Part " + idx + " of " + total;
+
+      // Prefer streamed progress if supported
       const res = await fetch(url, { cache: "no-store" });
       if (!res.ok) throw new Error("Failed to fetch ROM part: " + url + " (" + res.status + ")");
-      return await res.arrayBuffer();
+
+      const lenHeader = res.headers.get("content-length");
+      const partSize = lenHeader ? parseInt(lenHeader, 10) : 0;
+
+      if (!res.body || !res.body.getReader) {
+        // No streaming support, fallback to full buffer
+        setStatusUI(label, sub, ((idx - 1) / total) * 90, "Fetching " + url.split("/").pop());
+        const ab = await res.arrayBuffer();
+        return { bytes: new Uint8Array(ab), partSize: ab.byteLength };
+      }
+
+      const reader = res.body.getReader();
+      const chunks = [];
+      let received = 0;
+
+      // If content-length isn't known, we still show progress based on parts + within-part bytes
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        received += value.byteLength;
+
+        const knownTotal = totalBytesKnown > 0 ? totalBytesKnown : 0;
+        const numer = loadedSoFar + received;
+        const denom = knownTotal > 0 ? knownTotal : 1;
+        const pct = knownTotal > 0
+          ? (numer / denom) * 90
+          : ((idx - 1) / total) * 90 + (received / Math.max(partSize || received || 1, 1)) * (90 / total);
+
+        const extra = (knownTotal > 0)
+          ? (fmtMB(numer) + " / " + fmtMB(knownTotal))
+          : ("Downloaded " + fmtMB(received) + (partSize ? (" / " + fmtMB(partSize)) : ""));
+
+        setStatusUI(label, sub, pct, extra);
+      }
+
+      const out = new Uint8Array(received);
+      let off = 0;
+      for (const c of chunks) { out.set(c, off); off += c.byteLength; }
+      return { bytes: out, partSize: received };
     }
 
     async function assembleRom(parts) {
+      setStatusUI("Preparing game file", "Checking file list...", 2, parts.length + " parts");
+
+      // First pass: try to get total size via HEAD (if allowed)
+      let totalKnown = 0;
+      try {
+        const heads = await Promise.all(parts.map(async (p) => {
+          try {
+            const r = await fetch(p, { method: "HEAD", cache: "no-store" });
+            if (!r.ok) return 0;
+            const cl = r.headers.get("content-length");
+            return cl ? parseInt(cl, 10) : 0;
+          } catch (e) { return 0; }
+        }));
+        totalKnown = heads.reduce((a,b)=>a+(b||0), 0);
+      } catch (e) {}
+
+      let loadedSoFar = 0;
       const bufs = [];
+
       for (let i = 0; i < parts.length; i++) {
-        const ab = await fetchPart(parts[i], i + 1, parts.length);
-        bufs.push(new Uint8Array(ab));
+        const got = await fetchPart(parts[i], i + 1, parts.length, loadedSoFar, totalKnown);
+        bufs.push(got.bytes);
+        loadedSoFar += got.partSize || got.bytes.byteLength || 0;
       }
 
-      showStatus("Assembling game file ...");
+      setStatusUI("Assembling game file", "Stitching parts...", 92, fmtMB(loadedSoFar));
 
       let total = 0;
       for (const b of bufs) total += b.byteLength;
@@ -226,6 +353,8 @@ const ROM_PARTS = [
         out.set(b, off);
         off += b.byteLength;
       }
+
+      setStatusUI("Finalizing", "Creating in-browser file...", 97, fmtMB(total));
 
       const blob = new Blob([out], { type: "application/octet-stream" });
       const blobUrl = URL.createObjectURL(blob);
@@ -244,24 +373,23 @@ const ROM_PARTS = [
 
     (async function boot() {
       try {
-        showStatus("Preparing game file ...");
-
-        // If you only have 2 parts, delete the 3rd line in ROM_PARTS and it will still work.
-        // If part3 does not exist, the fetch will fail.
-        // So make sure ROM_PARTS matches exactly what you uploaded.
+        setStatusUI("Preparing game file", "Starting...", 1, "");
 
         const blobUrl = await assembleRom(ROM_PARTS);
 
         window.EJS_gameUrl = blobUrl;
         console.log("[Croc] EJS_gameUrl (blob):", blobUrl);
 
-        hideStatus();
+        setStatusUI("Starting emulator", "Launching...", 99, "Almost there...");
 
-        // Now start EmulatorJS only after ROM is ready
+        // Start EmulatorJS only after ROM is ready
         await loadLoaderJs();
+
+        // Let EmulatorJS take over. Hide status after a short delay to avoid flicker.
+        setTimeout(hideStatus, 1500);
       } catch (e) {
         console.error("[Croc] Boot failed:", e);
-        showStatus("Game failed to load: " + (e && e.message ? e.message : String(e)));
+        setStatusUI("Game failed to load", (e && e.message ? e.message : String(e)), 0, "Check Console for details.");
       }
     })();
   </script>
@@ -290,7 +418,7 @@ const ROM_PARTS = [
       if (btn) btn.onclick = hideFor3m;
     })();
 
-    // Rotator: Google Form → Discord → Instagram (you said ignore Instagram image issues)
+    // Rotator: Google Form → Discord → Instagram
     (function(){
       const wrap = document.getElementById("staticSlideMenu");
       const a    = document.getElementById("staticSlideLink");

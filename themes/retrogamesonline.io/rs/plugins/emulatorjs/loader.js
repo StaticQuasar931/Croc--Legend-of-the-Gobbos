@@ -259,28 +259,39 @@
     var emuUrl = emuUrlNoQuery + '?v=0.4.23';
 
     // Emscripten Module hints
-    try {
-      window.Module = window.Module || {};
+// IMPORTANT FIX:
+// Your build is spawning a secondary Worker from inside the first Worker and ending up with "".
+// That is pthread logic not getting a valid script URL.
+// These Module flags must be set BEFORE emulator.js runs.
 
-      // Log every locateFile request and force it to your data folder
-      window.Module.locateFile = function (path, prefix) {
-        var out = window.EJS_pathtodata + path;
-        dlog('Module.locateFile:', { path: path, prefix: prefix, out: out });
-        return out;
-      };
+try {
+  window.Module = window.Module || {};
 
-      // This is critical for worker resolution when script is loaded dynamically
-      window.Module.mainScriptUrlOrBlob = emuUrlNoQuery;
-      dlog('Module.mainScriptUrlOrBlob set to:', window.Module.mainScriptUrlOrBlob);
+  // Always resolve support files from your pathtodata folder
+  window.Module.locateFile = function (path, prefix) {
+    return window.EJS_pathtodata + path;
+  };
 
-      // Pipe prints
-      window.Module.print = function () { safeLog.apply(null, arguments); };
-      window.Module.printErr = function () { safeError.apply(null, arguments); };
+  // Use NO query string here (some worker bootstraps choke on it)
+  var emuMainNoQuery = window.EJS_pathtodata + 'emulator.js';
 
-      // If the build uses these, they help too (harmless if ignored)
-      window.Module.noInitialRun = false;
-      window.Module.locateFilePrefix = window.EJS_pathtodata;
-    } catch (e) {
+  // Critical: tell Emscripten what the "main script URL" is
+  window.Module.mainScriptUrlOrBlob = emuMainNoQuery;
+
+  // Critical: pthread-related hints (different Emscripten builds use different names)
+  window.Module.pthreadMainRuntimeThreadScript = emuMainNoQuery;
+  window.Module.pthreadWorkerUrl = emuMainNoQuery;
+  window.Module.pthreadWorkerFile = emuMainNoQuery;
+
+  // Hard disable pthread creation
+  window.Module.PTHREAD_POOL_SIZE = 0;
+  window.Module.pthreadPoolSize = 0;
+  window.Module.__pthreadPoolSize = 0;
+
+  // Pipe logs
+  window.Module.print = function () { safeLog.apply(null, arguments); };
+  window.Module.printErr = function () { safeError.apply(null, arguments); };
+} catch (e) {}
       derror('Failed to configure Module hints:', e);
     }
 
