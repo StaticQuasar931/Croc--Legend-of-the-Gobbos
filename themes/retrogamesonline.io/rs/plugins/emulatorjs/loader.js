@@ -89,24 +89,25 @@
     } catch (e) {}
   }
 
-  // Keep your blob head-info behavior but make it safe and simple.
-  // normalFunc is expected to be a function(url, options) that returns a promise or value.
-  window.getHeadGameInfo = function (normalFunc, url) {
-    if (!isString(url) || url.indexOf('blob:') !== 0) {
-      return normalFunc(url, {});
-    }
-    return (async function () {
-      var r = await fetch(url);
-      var b = await r.blob();
-      return {
-        headers: {
-          'content-length': b.size,
-          'content-type': 'text/plain'
-        }
-      };
-    })();
-  };
 
+// Keep your blob head-info behavior but make it safe and simple.
+// normalFunc is expected to be a function(url, options) that returns a promise or value.
+window.getHeadGameInfo = function (normalFunc, url) {
+  if (typeof url !== "string" || url.indexOf("blob:") !== 0) {
+    return normalFunc(url, {});
+  }
+
+  return (async function () {
+    var r = await fetch(url);
+    var b = await r.blob();
+    return {
+      headers: {
+        "content-length": String(b.size),
+        "content-type": b.type || "application/octet-stream"
+      }
+    };
+  })();
+};
   // ----------------------------
   // Validate required globals
   // ----------------------------
