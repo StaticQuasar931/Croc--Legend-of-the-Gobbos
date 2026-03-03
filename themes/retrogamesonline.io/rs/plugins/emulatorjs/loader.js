@@ -233,6 +233,20 @@ function loadScript(src, timeoutMs) {
     // If you want cache busting, keep a stable version string here.
     var emuUrl = window.EJS_pathtodata + 'emulator.js?v=0.4.23';
 
+    // IMPORTANT FIX (prevents "Worker from an empty source"):
+    // emulator.js is Emscripten-built. When loaded dynamically, it may not know its own URL.
+    // These hints let it locate its worker/wasm files correctly.
+    try {
+      window.Module = window.Module || {};
+      window.Module.locateFile = function (path, prefix) {
+        return window.EJS_pathtodata + path;
+      };
+      window.Module.mainScriptUrlOrBlob = emuUrl;
+      // Optional: pipe Emscripten logs into your safeLog helpers
+      window.Module.print = function () { safeLog.apply(null, arguments); };
+      window.Module.printErr = function () { safeError.apply(null, arguments); };
+    } catch (e) {}
+
     // Load emulator.js
     try {
       await loadScript(emuUrl);
@@ -240,7 +254,6 @@ function loadScript(src, timeoutMs) {
       safeError('Failed to load emulator.js:', emuUrl, e);
       throw new Error('emulator.js failed to load: ' + emuUrl);
     }
-
     // Give emulator.js a moment to attach globals (some builds do it after a tick)
     var ctor = null;
     for (var i = 0; i < 50; i++) {
