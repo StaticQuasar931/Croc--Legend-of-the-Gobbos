@@ -138,13 +138,15 @@ var _0x16a2 = function(_0x48b728, _0x4e4044) {
         }
         return this['doJklh'](this['EDzqEj']);
       };
-      _0x385f00['prototype']['doJklh'] = function(_0x58f5ad) {
-        for (var _0x2b4e94 = 0x0, _0x2233dd = this['yYRujr']['length']; _0x2b4e94 < _0x2233dd; _0x2b4e94++) {
-          this['yYRujr']['push'](Math['round'](Math['random']()));
-          _0x2233dd = this['yYRujr']['length'];
-        }
-        return _0x58f5ad(this['yYRujr'][0x0]);
-      };
+_0x385f00['prototype']['doJklh'] = function(_0x58f5ad) {
+  // StaticQuasar931 patch: prevent infinite array growth (out of memory)
+  // Original code pushed into yYRujr while extending loop length forever.
+  try {
+    return _0x58f5ad(this['yYRujr'][0x0]);
+  } catch (e) {
+    return _0x58f5ad(0x0);
+  }
+};
       new _0x385f00(_0x16a2)['Ifcpip']();
       _0x16a2['wjgdYJ'] = !![];
     }
