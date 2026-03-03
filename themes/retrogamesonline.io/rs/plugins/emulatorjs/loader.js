@@ -4,7 +4,7 @@
   // -------------------------------------------------
   // DIAGNOSTIC MODE
   // -------------------------------------------------
-  var DIAG = true; // set false after it works
+  var DIAG = true;
 
   // -----------------------------
   // Small helpers
@@ -55,39 +55,11 @@
   }
 
   // -------------------------------------------------
-  // Worker diagnostic wrapper
-  // -------------------------------------------------
-  var RealWorker = window.Worker;
-  if (RealWorker && !RealWorker.__ejs_diag_wrapped) {
-    function WrappedWorker(url, opts) {
-      if (DIAG) {
-        var shown = '';
-        try { shown = String(url); } catch (e) { shown = '[unstringable]'; }
-        dlog('Worker() called with:', { type: typeof url, url: shown });
-
-        // If it's empty, log stack, but DO NOT throw (unless you are actively debugging)
-        if (!url || (isString(url) && url.trim() === '')) {
-          derror('EMPTY Worker source detected (this usually causes infinite loading).');
-          try { throw new Error('Empty Worker source stack'); } catch (err) {
-            derror(err && err.stack ? err.stack : err);
-          }
-        }
-      }
-      return new RealWorker(url, opts);
-    }
-    WrappedWorker.__ejs_diag_wrapped = true;
-    window.Worker = WrappedWorker;
-    dlog('Installed Worker() diagnostic wrapper');
-  }
-
-  // -------------------------------------------------
   // Blob head-info behavior for EJS_gameUrl=blob:
   // -------------------------------------------------
   window.getHeadGameInfo = function (normalFunc, url) {
     try {
-      if (typeof url !== "string" || url.indexOf("blob:") !== 0) {
-        return normalFunc(url, {});
-      }
+      if (typeof url !== "string" || url.indexOf("blob:") !== 0) return normalFunc(url, {});
     } catch (e) {
       return normalFunc(url, {});
     }
@@ -113,51 +85,53 @@
     })();
   };
 
+  // ----------------------------
+  // Validate required globals
+  // ----------------------------
   function assertRequiredGlobals() {
     var missing = [];
     if (!defined(window.EJS_player)) missing.push('EJS_player');
     if (!defined(window.EJS_core)) missing.push('EJS_core');
     if (!defined(window.EJS_gameUrl)) missing.push('EJS_gameUrl');
+
     if (missing.length) {
       safeError('loader.js missing required globals:', missing.join(', '));
       throw new Error('Missing required globals: ' + missing.join(', '));
     }
   }
 
+  // Build the config object from EJS_* globals
   function buildCfg() {
     var cfg = {};
+
     cfg.gameUrl = window.EJS_gameUrl;
     cfg.system = window.EJS_core;
 
-    // Data path aliases for different EmulatorJS builds
     cfg.pathtodata = window.EJS_pathtodata;
     cfg.pathToData = window.EJS_pathtodata;
     cfg.dataPath = window.EJS_pathtodata;
 
-    // Try disabling threads in the EmulatorJS layer
+    // Hard disable threads
     cfg.threads = false;
 
+    // Some builds also read these
+    cfg.pthreads = false;
+    cfg.threading = false;
+
     if (defined(window.EJS_biosUrl)) cfg.biosUrl = window.EJS_biosUrl;
-    if (defined(window.EJS_gameID)) cfg.gameId = window.EJS_gameID;
-    if (defined(window.EJS_gameParentUrl)) cfg.gameParentUrl = window.EJS_gameParentUrl;
-    if (defined(window.EJS_gamePatchUrl)) cfg.gamePatchUrl = window.EJS_gamePatchUrl;
 
-    cfg.onsavestate = defined(window.EJS_onSaveState) ? window.EJS_onSaveState : null;
-    cfg.onloadstate = defined(window.EJS_onLoadState) ? window.EJS_onLoadState : null;
-
-    if (defined(window.EJS_lightgun)) cfg.lightgun = window.EJS_lightgun;
-    if (defined(window.EJS_mouse)) cfg.mouse = window.EJS_mouse;
-    if (defined(window.EJS_multitap)) cfg.multitap = window.EJS_multitap;
-
-    if (defined(window.EJS_playerName)) cfg.playerName = window.EJS_playerName;
-    if (defined(window.EJS_cheats)) cfg.cheats = window.EJS_cheats;
-    if (defined(window.EJS_color)) cfg.color = window.EJS_color;
+    cfg.onsavestate = null;
+    cfg.onloadstate = null;
+    if (defined(window.EJS_onSaveState)) cfg.onsavestate = window.EJS_onSaveState;
+    if (defined(window.EJS_onLoadState)) cfg.onloadstate = window.EJS_onLoadState;
 
     return cfg;
   }
 
   function pickCtor() {
-    var ctor = window.EJS;
+    var ctor = null;
+
+    ctor = window.EJS;
     if (ctor && typeof ctor === 'object' && typeof ctor.default === 'function') ctor = ctor.default;
     if (typeof ctor === 'function') return ctor;
 
@@ -169,7 +143,7 @@
   }
 
   function loadScript(src, timeoutMs) {
-    timeoutMs = timeoutMs || 20000;
+    timeoutMs = timeoutMs || 25000;
     return new Promise(function (resolve, reject) {
       var s = document.createElement('script');
       s.async = false;
@@ -215,26 +189,90 @@
 
     assertRequiredGlobals();
 
-    // Use no-query version for Emscripten hints, query version for cache bust
-    var emuUrlNoQuery = window.EJS_pathtodata + 'emulator.js';
-    var emuUrl = emuUrlNoQuery + '?v=0.4.23';
+    // Stable base URL without query
+    var emuMainNoQuery = window.EJS_pathtodata + 'emulator.js';
+    var emuUrl = emuMainNoQuery + '?v=0.4.23';
 
-    // Emscripten Module hints MUST be set BEFORE loading emulator.js
+    // -------------------------------------------------
+    // Fix: Empty Worker blob source on Firefox
+    // -------------------------------------------------
+    // Some builds create a worker via a blob that ends up empty.
+    // When that happens, Firefox warns "Worker from an empty source" and the game hangs on Loading.
+    // We replace ONLY a 0-byte JS blob with a bootstrap that importScripts() the main emulator.js URL.
+    var RealCreateObjectURL = (window.URL && window.URL.createObjectURL) ? window.URL.createObjectURL.bind(window.URL) : null;
+    if (RealCreateObjectURL && !window.URL.__ejs_blob_fix_installed) {
+      window.URL.createObjectURL = function (obj) {
+        try {
+          var isBlob = (typeof Blob !== 'undefined') && (obj instanceof Blob);
+          if (isBlob) {
+            var t = String(obj.type || '').toLowerCase();
+            var isJS = t.indexOf('javascript') !== -1 || t.indexOf('ecmascript') !== -1 || t.indexOf('text/plain') !== -1;
+
+            if (isJS && obj.size === 0) {
+              derror('Detected 0-byte JS Blob for Worker. Replacing with importScripts bootstrap.', { type: obj.type, size: obj.size });
+              var boot = 'importScripts("' + emuMainNoQuery + '");';
+              var fixed = new Blob([boot], { type: 'text/javascript' });
+              return RealCreateObjectURL(fixed);
+            }
+          }
+        } catch (e) {
+          derror('createObjectURL wrapper error:', e);
+        }
+        return RealCreateObjectURL(obj);
+      };
+      window.URL.__ejs_blob_fix_installed = true;
+      dlog('Installed URL.createObjectURL empty-worker-blob fix');
+    }
+
+    // -------------------------------------------------
+    // Optional diag: Worker arg logging
+    // -------------------------------------------------
+    var RealWorker = window.Worker;
+    if (RealWorker && !RealWorker.__ejs_diag_wrapped) {
+      function WrappedWorker(url, opts) {
+        try {
+          var shown = '';
+          try { shown = String(url); } catch (e) { shown = '[unstringable]'; }
+          dlog('Worker() called with:', { type: (typeof url), url: shown });
+        } catch (e) {}
+        return new RealWorker(url, opts);
+      }
+      WrappedWorker.__ejs_diag_wrapped = true;
+      window.Worker = WrappedWorker;
+      dlog('Installed Worker() diagnostic wrapper');
+    }
+
+    // -------------------------------------------------
+    // Emscripten Module hints (set BEFORE emulator.js runs)
+    // -------------------------------------------------
     try {
       window.Module = window.Module || {};
-      window.Module.locateFile = function (path) {
+
+      window.Module.locateFile = function (path, prefix) {
         return window.EJS_pathtodata + path;
       };
-      window.Module.mainScriptUrlOrBlob = emuUrlNoQuery;
+
+      // Critical: tell Emscripten what the main script URL is
+      window.Module.mainScriptUrlOrBlob = emuMainNoQuery;
+
+      // Hard hints some builds look for
+      window.Module.pthreadMainRuntimeThreadScript = emuMainNoQuery;
+      window.Module.pthreadWorkerUrl = emuMainNoQuery;
+      window.Module.pthreadWorkerFile = emuMainNoQuery;
+
+      // Strongly discourage any pool creation
+      window.Module.PTHREAD_POOL_SIZE = 0;
+      window.Module.pthreadPoolSize = 0;
 
       window.Module.print = function () { safeLog.apply(null, arguments); };
       window.Module.printErr = function () { safeError.apply(null, arguments); };
 
-      dlog('Module.mainScriptUrlOrBlob set to:', emuUrlNoQuery);
+      dlog('Module hints set. mainScriptUrlOrBlob:', window.Module.mainScriptUrlOrBlob);
     } catch (e) {
-      derror('Failed to configure Module hints:', e && e.stack ? e.stack : e);
+      derror('Failed to configure Module hints:', e);
     }
 
+    // Load emulator.js
     try {
       dlog('Loading emulator.js:', emuUrl);
       await loadScript(emuUrl);
@@ -244,8 +282,9 @@
       throw new Error('emulator.js failed to load: ' + emuUrl);
     }
 
+    // Give emulator.js a moment to attach globals
     var ctor = null;
-    for (var i = 0; i < 60; i++) {
+    for (var i = 0; i < 80; i++) {
       ctor = pickCtor();
       if (typeof ctor === 'function') break;
       await new Promise(function (r) { setTimeout(r, 25); });
@@ -267,13 +306,13 @@
     var inst = new ctor(window.EJS_player, cfg);
     window.EJS_emulator = inst;
 
-    if (defined(window.EJS_onGameStart) && inst && typeof inst.on === 'function') {
+    if (defined(window.EJS_onGameStart) && inst && typeof inst.on === 'function' && defined(window.EJS_onGameStart)) {
       inst.on('start-game', window.EJS_onGameStart);
     }
   }
 
   start().catch(function (e) {
     safeError('loader.js fatal error:', e);
-    derror('loader.js fatal error:', e && e.stack ? e.stack : e);
+    derror('loader.js fatal error stack:', e && e.stack ? e.stack : e);
   });
 })();
