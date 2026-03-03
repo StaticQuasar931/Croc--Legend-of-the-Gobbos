@@ -20,6 +20,18 @@
   function ensureTrailingSlash(url) {
     return url.endsWith('/') ? url : (url + '/');
   }
+  // Always show parse/runtime errors, even if emulator.js breaks badly
+  window.addEventListener('error', function (ev) {
+    try {
+      safeError('window.error:', ev && (ev.message || ev.type), ev && ev.filename, ev && ev.lineno, ev && ev.colno, ev && ev.error);
+    } catch (e) {}
+  });
+
+  window.addEventListener('unhandledrejection', function (ev) {
+    try {
+      safeError('unhandledrejection:', ev && ev.reason);
+    } catch (e) {}
+  });
 
   // Normalize a base path to an absolute URL.
   // Accepts:
@@ -166,25 +178,41 @@
     return null;
   }
 
-  // Load emulator.js and return a promise that resolves when loaded
-  function loadScript(src) {
-    return new Promise(function (resolve, reject) {
-      var s = document.createElement('script');
-      s.async = true;
-      s.src = src;
+function loadScript(src, timeoutMs) {
+  timeoutMs = timeoutMs || 15000;
+  return new Promise(function (resolve, reject) {
+    var s = document.createElement('script');
+    s.async = false;
+    s.defer = false;
+    s.src = src;
+    s.crossOrigin = 'anonymous';
 
-      s.onload = function () { resolve(); };
-      s.onerror = function (e) { reject(e); };
+    var done = false;
+    var t = setTimeout(function () {
+      if (done) return;
+      done = true;
+      try { s.remove(); } catch (e) {}
+      reject(new Error('Timed out loading script: ' + src));
+    }, timeoutMs);
 
-      // Insert before first script tag for compatibility
-      var first = document.getElementsByTagName('script')[0];
-      if (first && first.parentNode) {
-        first.parentNode.insertBefore(s, first);
-      } else {
-        document.head.appendChild(s);
-      }
-    });
-  }
+    s.onload = function () {
+      if (done) return;
+      done = true;
+      clearTimeout(t);
+      resolve();
+    };
+    s.onerror = function (e) {
+      if (done) return;
+      done = true;
+      clearTimeout(t);
+      reject(e || new Error('Failed to load script: ' + src));
+    };
+
+    var first = document.getElementsByTagName('script')[0];
+    if (first && first.parentNode) first.parentNode.insertBefore(s, first);
+    else document.head.appendChild(s);
+  });
+}
 
   async function start() {
     checkNewestVersion();
@@ -203,7 +231,7 @@
 
     // Compose emulator.js URL
     // If you want cache busting, keep a stable version string here.
-    var emuUrl = window.EJS_pathtodata + 'emulator.js?v=0.4.23';
+    var emuUrl = window.EJS_pathtodata + 'emulator.js?v=0.4.23&cb=' + Date.now();
 
     // Load emulator.js
     try {
@@ -213,8 +241,14 @@
       throw new Error('emulator.js failed to load: ' + emuUrl);
     }
 
-    // Find ctor
-    var ctor = pickCtor();
+    // Give emulator.js a moment to attach globals (some builds do it after a tick)
+    var ctor = null;
+    for (var i = 0; i < 50; i++) {
+      ctor = pickCtor();
+      if (typeof ctor === 'function') break;
+      await new Promise(function (r) { setTimeout(r, 20); });
+    }
+
     if (typeof ctor !== 'function') {
       safeError('EJS constructor missing after emulator.js load. URL:', emuUrl);
       safeError('typeof window.EJS:', typeof window.EJS);
@@ -232,7 +266,6 @@
 
     // Some themes expect the instance elsewhere too, keep both
     // (If you do not want duplicates, delete the next line.)
-    window.EJS = window.EJS || ctor;
 
     // Hook start-game if present
     if (defined(window.EJS_onGameStart) && inst && typeof inst.on === 'function') {
