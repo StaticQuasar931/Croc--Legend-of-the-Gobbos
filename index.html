@@ -102,7 +102,7 @@
       clip:rect(1px,1px,1px,1px); white-space:nowrap;
     }
 
-    /* Tiny loader text while assembling the ROM */
+    /* Loader (bigger + bottom-middle) */
     #romStatus{
       position:fixed;
       left:50%;
@@ -206,7 +206,7 @@
     window.EJS_threads = false;
     window.EJS_pthreads = false;
 
-    // BIOS (your existing local BIOS)
+    // BIOS (IMPORTANT: UNZIPPED BIOS FILE, NOT .7z)
     window.EJS_biosUrl = "./bios_retro/psx/scph1001.bin";
 
     // EmulatorJS data path (your existing local folder)
@@ -271,7 +271,6 @@
       const label = "Downloading game files";
       const sub = "Part " + idx + " of " + total;
 
-      // Prefer streamed progress if supported
       const res = await fetch(url, { cache: "no-store" });
       if (!res.ok) throw new Error("Failed to fetch ROM part: " + url + " (" + res.status + ")");
 
@@ -279,7 +278,6 @@
       const partSize = lenHeader ? parseInt(lenHeader, 10) : 0;
 
       if (!res.body || !res.body.getReader) {
-        // No streaming support, fallback to full buffer
         setStatusUI(label, sub, ((idx - 1) / total) * 90, "Fetching " + url.split("/").pop());
         const ab = await res.arrayBuffer();
         return { bytes: new Uint8Array(ab), partSize: ab.byteLength };
@@ -289,7 +287,6 @@
       const chunks = [];
       let received = 0;
 
-      // If content-length isn't known, we still show progress based on parts + within-part bytes
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -319,7 +316,6 @@
     async function assembleRom(parts) {
       setStatusUI("Preparing game file", "Checking file list...", 2, parts.length + " parts");
 
-      // First pass: try to get total size via HEAD (if allowed)
       let totalKnown = 0;
       try {
         const heads = await Promise.all(parts.map(async (p) => {
@@ -382,10 +378,8 @@
 
         setStatusUI("Starting emulator", "Launching...", 99, "Almost there...");
 
-        // Start EmulatorJS only after ROM is ready
         await loadLoaderJs();
 
-        // Let EmulatorJS take over. Hide status after a short delay to avoid flicker.
         setTimeout(hideStatus, 1500);
       } catch (e) {
         console.error("[Croc] Boot failed:", e);
@@ -435,7 +429,7 @@
         link: "https://discord.gg/DP2hM7RRhR"
       };
       const INSTA = {
-        src:  "https://cdn.jsdelivr.net/gh/StaticQuasar931/Images@main/Follow-us--IG",
+        src:  "https://cdn.jsdelivr.net/gh/StaticQuasar931/Images@main/Follow-us--IG.png",
         alt:  "StaticQuasar931 Instagram",
         link: "https://www.instagram.com/freeschoolgamepage/"
       };
