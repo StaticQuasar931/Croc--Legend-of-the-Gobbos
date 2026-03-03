@@ -68,10 +68,7 @@
     }
   }
 
-  // Version checker (non-blocking)
-  function checkNewestVersion() {
-    // Your hardcoded current loader-reported version
-    var usingVersion = '0.4.23-01';
+
 
     // Your repo version.json
     var url = 'https://cdn.jsdelivr.net/gh/StaticQuasar931/Croc--Legend-of-the-Gobbos@main/version.json';
