@@ -1,267 +1,247 @@
-fetch('https://cdn.jsdelivr.net/gh/StaticQuasar931/Croc--Legend-of-the-Gobbos@main/version.json').then(response => {
-  if (response.ok) {
-    response.text().then(body => {
-      var version = JSON.parse(body);
-      var usingVersion = '0.4.23-01';
-      if (usingVersion != version.current_version) {
-        console.log('Using emulatorjs version ' + usingVersion + ' but the newest version is ' + version.current_version);
-      };
-    });
-  };
-});
+(function () {
+  'use strict';
 
-if (!window.EJS_pathtodata) {
-  EJS_pathtodata = './'
-}
-var path2Send = EJS_pathtodata
-var finpath = window.location.pathname.split('/').pop();
-var finalpath = window.location.pathname.substring(0, window.location.pathname.length - finpath.length);
-var split3 = finalpath.split('/')
-var split2 = path2Send.split('/')
-var split1 = []
-for (var i = 0; i < split3.length; i++) {
-  if (split3[i] != '') {
-    split1.push(split3[i])
+  // -----------------------------
+  // Small helpers
+  // -----------------------------
+  function isString(v) { return typeof v === 'string'; }
+  function defined(v) { return typeof v !== 'undefined'; }
+
+  function safeLog() {
+    try { console.log.apply(console, arguments); } catch (e) {}
   }
-}
-if (!path2Send.startsWith('/') && path2Send.split('://').length == 1 && path2Send.split('http:').length == 1 && path2Send.split('https:').length == 1) {
-  for (var w = 0; w < split2.length; w++) {
-    if (split2[w] == '' || split2[w] == '.') {} else if (split2[w] == '..') {
-      if (split1.length > 0) {
-        var split1 = split1.splice(-1, 1)
-      }
-    } else {
-      split1.push(split2[w])
+  function safeWarn() {
+    try { console.warn.apply(console, arguments); } catch (e) {}
+  }
+  function safeError() {
+    try { console.error.apply(console, arguments); } catch (e) {}
+  }
+
+  function ensureTrailingSlash(url) {
+    return url.endsWith('/') ? url : (url + '/');
+  }
+
+  // Normalize a base path to an absolute URL.
+  // Accepts:
+  // - absolute: https://..., http://...
+  // - protocol-relative: //host/path
+  // - root-relative: /path
+  // - relative: ./path, ../path, themes/... etc
+  function normalizeBasePath(input) {
+    var raw = isString(input) && input.length ? input : './';
+
+    // If it's already absolute (http/https)
+    if (raw.indexOf('http://') === 0 || raw.indexOf('https://') === 0) {
+      return ensureTrailingSlash(raw);
+    }
+
+    // If it's protocol-relative
+    if (raw.indexOf('//') === 0) {
+      return ensureTrailingSlash(window.location.protocol + raw);
+    }
+
+    // If it's root-relative
+    if (raw.indexOf('/') === 0) {
+      return ensureTrailingSlash(window.location.protocol + '//' + window.location.host + raw);
+    }
+
+    // Otherwise treat as relative to current document URL
+    try {
+      var abs = new URL(raw, window.location.href).href;
+      return ensureTrailingSlash(abs);
+    } catch (e) {
+      // Worst case fallback
+      var fallback = window.location.protocol + '//' + window.location.host + '/';
+      return fallback;
     }
   }
-  var path2Send = split1.join('/')
-  if (!path2Send.startsWith('/')) {
-    var path2Send = '/' + path2Send
+
+  // Version checker (non-blocking)
+  function checkNewestVersion() {
+    // Your hardcoded current loader-reported version
+    var usingVersion = '0.4.23-01';
+
+    // Your repo version.json
+    var url = 'https://cdn.jsdelivr.net/gh/StaticQuasar931/Croc--Legend-of-the-Gobbos@main/version.json';
+
+    try {
+      fetch(url).then(function (res) {
+        if (!res || !res.ok) return;
+        return res.text();
+      }).then(function (body) {
+        if (!body) return;
+        var data;
+        try { data = JSON.parse(body); } catch (e) { return; }
+        if (!data || !data.current_version) return;
+        if (usingVersion !== data.current_version) {
+          safeLog('Using emulatorjs version ' + usingVersion + ' but the newest version is ' + data.current_version);
+        }
+      }).catch(function () {});
+    } catch (e) {}
   }
-  path2Send = window.location.protocol + '//' + window.location.host + path2Send
-  EJS_pathtodata = path2Send
-}
-if (EJS_pathtodata.startsWith('/')) {
-  EJS_pathtodata = window.location.protocol + '//' + window.location.host + path2Send
-}
 
-if (!EJS_pathtodata.endsWith('/')) {
-  EJS_pathtodata = EJS_pathtodata + '/'
-}
-console.log('Path to data is set to ' + EJS_pathtodata)
-
-
-window.getHeadGameInfo = function(normalFunc, url) {
-  if (!url.startsWith('blob:')) {
-    return normalFunc(url, {})
-  } else {
-    return async function() {
-      //console.log('blob url')
-      var a = await fetch(url)
-      var a = await a.blob()
+  // Keep your blob head-info behavior but make it safe and simple.
+  // normalFunc is expected to be a function(url, options) that returns a promise or value.
+  window.getHeadGameInfo = function (normalFunc, url) {
+    if (!isString(url) || url.indexOf('blob:') !== 0) {
+      return normalFunc(url, {});
+    }
+    return (async function () {
+      var r = await fetch(url);
+      var b = await r.blob();
       return {
         headers: {
-          'content-length': a.size,
+          'content-length': b.size,
           'content-type': 'text/plain'
         }
-      }
-    }();
-  }
-}
-
-
-
-var _0x2038 = ['w6rDlsOdwqp8L0XCosOgfw==', 'wrbCqUXDkMO7w4UWwpLDhg==', 'wpg5wqXCul58', 'wrjCn3QCLQ==', 'wpstaMKAw50vwrLCi8Kiw7DChMOP', 'w57Cn8Ovw7rCiGM=', 'aBPClknCuyjDnA==', 'Am7CksOhDsKrXQ==', 'wpR/esKf', 'wq/CkcKWX2vCh8OM', 'wpHDmsKUw6TDqERc', 'w4/CoRV1PcKacMKYw4EXXnzCjB8=', 'EnjChsOrGsK2QG7Dog==', 'wpvCncKUw4vCpgBEACJnwrs=', 'QsOqw5ZwAnzCuxjDkkFFw5FOwpg=', 'wqoIaMKrw4orwqnCgMKXw6XCjA==', 'wpMIX8Kqw5Qn', 'wrPCmgbCjTRxwrAqXMO6', 'OEnCh8O9McKwSn7DqsKz', 'bz/DucKsw5nCjVNeHGLChsKJVcO9', 'wpQNwqw/asK8', 'MH0CwrM=', 'w5/DgMOrw7gSwrPDnBV/woc=', 'ZhBrbU3DtUk=', 'YzvDrMKKw4DChlNeHGLChsKJVcO9', 'BsOEFwE=', 'CD7CrsOM', 'DMKFwoTDrn7Clg==', 'RsOAwq0=', 'wp7CrxA=', 'IhXCnw==', 'wrgYICk3', 'wqYYO2k=', 'BsOXHgxsTnbDn0oUwpBdLQ==', 'wq7DpMKyKGjCscO2w57CucKwwoc2EMOgwoZzwoXDhCMn', 'wo7CgcK+w5HCtw==', 'wpcYwqwzasKvw6fCvg4Z', 'YxjCnEfCryA=', 'IsOFw6nCjsOjw4rCqg==', 'woJwcsKWRinDpMKuw78=', 'MMOKw6DCjsOQw5HCqHXDog==', 'KMOOwqnCvRrDrUUZw58=', 'QHDCtMOeAHbDo8KHQcKyHk7CvQ==', 'wprCnMKjw5rCsgBEAhI=', 'wrkGVsK6w6gjwrPChMKrw5HCmcOR', 'FMOFwpLDon3Cn8O6F8OgGns=', 'NFvCuRXColbDksKtAQ==', 'bRt+bU7DvE7CgknCkcOl', 'IsOleMO8JcOWPMK3XA==', 'woPCm8Kgw5fCoA5fCQ==', 'wq7CnnwIOSHDqW3Dtw==', 'CnnCl8O9GQ==', 'wqsJX8K6w54rwqnCgsKn', 'wqTDtMKqGW3CoMO6w4s=', 'wo4/wqTCvkxmwqvCrw0='];
-(function(_0x5fdf6a, _0x5f1d56) {
-  var _0x4ce21b = function(_0x4aae52) {
-    while (--_0x4aae52) {
-      _0x5fdf6a['push'](_0x5fdf6a['shift']());
-    }
+      };
+    })();
   };
-  _0x4ce21b(++_0x5f1d56);
-}(_0x2038, 0x151));
-var _0x4e1f = function(_0x1d0725, _0x3fa05d) {
-  _0x1d0725 = _0x1d0725 - 0x0;
-  var _0x435479 = _0x2038[_0x1d0725];
-  if (_0x4e1f['GOZSPf'] === undefined) {
-    (function() {
-      var _0x1c7410;
-      try {
-        var _0x2c793f = Function('return\x20(function()\x20' + '{}.constructor(\x22return\x20this\x22)(\x20)' + ');');
-        _0x1c7410 = _0x2c793f();
-      } catch (_0x5702c8) {
-        _0x1c7410 = window;
-      }
-      var _0x1760cd = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
-      _0x1c7410['atob'] || (_0x1c7410['atob'] = function(_0x2425ad) {
-        var _0x5cc892 = String(_0x2425ad)['replace'](/=+$/, '');
-        for (var _0x4af34b = 0x0, _0x391722, _0x228b60, _0x138f0f = 0x0, _0x21b78a = ''; _0x228b60 = _0x5cc892['charAt'](_0x138f0f++); ~_0x228b60 && (_0x391722 = _0x4af34b % 0x4 ? _0x391722 * 0x40 + _0x228b60 : _0x228b60, _0x4af34b++ % 0x4) ? _0x21b78a += String['fromCharCode'](0xff & _0x391722 >> (-0x2 * _0x4af34b & 0x6)) : 0x0) {
-          _0x228b60 = _0x1760cd['indexOf'](_0x228b60);
-        }
-        return _0x21b78a;
-      });
-    }());
-    var _0x1a4d1f = function(_0x1bb821, _0x3c6c11) {
-      var _0x1063d6 = [],
-        _0x2ce395 = 0x0,
-        _0x18f72b, _0x5b9591 = '',
-        _0x3d3710 = '';
-      _0x1bb821 = atob(_0x1bb821);
-      for (var _0x5eefd7 = 0x0, _0x1603dc = _0x1bb821['length']; _0x5eefd7 < _0x1603dc; _0x5eefd7++) {
-        _0x3d3710 += '%' + ('00' + _0x1bb821['charCodeAt'](_0x5eefd7)['toString'](0x10))['slice'](-0x2);
-      }
-      _0x1bb821 = decodeURIComponent(_0x3d3710);
-      for (var _0x3a6020 = 0x0; _0x3a6020 < 0x100; _0x3a6020++) {
-        _0x1063d6[_0x3a6020] = _0x3a6020;
-      }
-      for (_0x3a6020 = 0x0; _0x3a6020 < 0x100; _0x3a6020++) {
-        _0x2ce395 = (_0x2ce395 + _0x1063d6[_0x3a6020] + _0x3c6c11['charCodeAt'](_0x3a6020 % _0x3c6c11['length'])) % 0x100;
-        _0x18f72b = _0x1063d6[_0x3a6020];
-        _0x1063d6[_0x3a6020] = _0x1063d6[_0x2ce395];
-        _0x1063d6[_0x2ce395] = _0x18f72b;
-      }
-      _0x3a6020 = 0x0;
-      _0x2ce395 = 0x0;
-      for (var _0x32fabb = 0x0; _0x32fabb < _0x1bb821['length']; _0x32fabb++) {
-        _0x3a6020 = (_0x3a6020 + 0x1) % 0x100;
-        _0x2ce395 = (_0x2ce395 + _0x1063d6[_0x3a6020]) % 0x100;
-        _0x18f72b = _0x1063d6[_0x3a6020];
-        _0x1063d6[_0x3a6020] = _0x1063d6[_0x2ce395];
-        _0x1063d6[_0x2ce395] = _0x18f72b;
-        _0x5b9591 += String['fromCharCode'](_0x1bb821['charCodeAt'](_0x32fabb) ^ _0x1063d6[(_0x1063d6[_0x3a6020] + _0x1063d6[_0x2ce395]) % 0x100]);
-      }
-      return _0x5b9591;
-    };
-    _0x4e1f['pZGlnx'] = _0x1a4d1f;
-    _0x4e1f['zpLYnm'] = {};
-    _0x4e1f['GOZSPf'] = !![];
-  }
-  var _0x49001b = _0x4e1f['zpLYnm'][_0x1d0725];
-  if (_0x49001b === undefined) {
-    if (_0x4e1f['ZrRSGh'] === undefined) {
-      _0x4e1f['ZrRSGh'] = !![];
+
+  // -----------------------------
+  // Validate required globals
+  // -----------------------------
+  function assertRequiredGlobals() {
+    var missing = [];
+
+    if (!defined(window.EJS_player)) missing.push('EJS_player');
+    if (!defined(window.EJS_core)) missing.push('EJS_core');
+    if (!defined(window.EJS_gameUrl)) missing.push('EJS_gameUrl');
+
+    if (missing.length) {
+      safeError('loader.js missing required globals:', missing.join(', '));
+      throw new Error('Missing required globals: ' + missing.join(', '));
     }
-    _0x435479 = _0x4e1f['pZGlnx'](_0x435479, _0x3fa05d);
-    _0x4e1f['zpLYnm'][_0x1d0725] = _0x435479;
-  } else {
-    _0x435479 = _0x49001b;
   }
-  return _0x435479;
-};
-var loader = function(_0x3f3e4d) {
-  var _0x33f0f1 = {};
 
-  function _0x268bfd(_0x6631ec) {
-    if (_0x33f0f1[_0x6631ec]) return _0x33f0f1[_0x6631ec][_0x4e1f('0x0', 'BtKl')];
-    var _0x50c7e4 = _0x33f0f1[_0x6631ec] = {
-      'i': _0x6631ec,
-      'l': !0x1,
-      'exports': {}
-    };
-    return _0x3f3e4d[_0x6631ec][_0x4e1f('0x1', 'Zn6#')](_0x50c7e4[_0x4e1f('0x2', 'x]Qh')], _0x50c7e4, _0x50c7e4[_0x4e1f('0x3', 'PY0V')], _0x268bfd), _0x50c7e4['l'] = !0x0, _0x50c7e4['exports'];
+  // Build the config object from EJS_* globals
+  function buildCfg() {
+    var cfg = {};
+
+    // Required
+    cfg.gameUrl = window.EJS_gameUrl;
+    cfg.system = window.EJS_core;
+
+    // Optional
+    if (defined(window.EJS_biosUrl)) cfg.biosUrl = window.EJS_biosUrl;
+    if (defined(window.EJS_gameID)) cfg.gameId = window.EJS_gameID;
+    if (defined(window.EJS_gameParentUrl)) cfg.gameParentUrl = window.EJS_gameParentUrl;
+    if (defined(window.EJS_gamePatchUrl)) cfg.gamePatchUrl = window.EJS_gamePatchUrl;
+
+    // Save states
+    cfg.onsavestate = null;
+    cfg.onloadstate = null;
+    if (defined(window.EJS_onSaveState)) cfg.onsavestate = window.EJS_onSaveState;
+    if (defined(window.EJS_onLoadState)) cfg.onloadstate = window.EJS_onLoadState;
+
+    // Input options
+    if (defined(window.EJS_lightgun)) cfg.lightgun = window.EJS_lightgun;
+    if (defined(window.EJS_mouse)) cfg.mouse = window.EJS_mouse;
+    if (defined(window.EJS_multitap)) cfg.multitap = window.EJS_multitap;
+
+    // User options
+    if (defined(window.EJS_playerName)) cfg.playerName = window.EJS_playerName;
+    if (defined(window.EJS_cheats)) cfg.cheats = window.EJS_cheats;
+    if (defined(window.EJS_color)) cfg.color = window.EJS_color;
+
+    return cfg;
   }
-  return _0x268bfd['m'] = _0x3f3e4d, _0x268bfd['c'] = _0x33f0f1, _0x268bfd['d'] = function(_0xf1024d, _0x55284e, _0x262414) {
-    _0x268bfd['o'](_0xf1024d, _0x55284e) || Object[_0x4e1f('0x4', 's4uY')](_0xf1024d, _0x55284e, {
-      'enumerable': !0x0,
-      'get': _0x262414
-    });
-  }, _0x268bfd['r'] = function(_0xa8a7e) {
-    _0x4e1f('0x5', 'BtKl') != typeof Symbol && Symbol[_0x4e1f('0x6', 'B^qF')] && Object[_0x4e1f('0x7', 'JpBI')](_0xa8a7e, Symbol[_0x4e1f('0x8', '[7fg')], {
-      'value': _0x4e1f('0x9', '[7fg')
-    }), Object['defineProperty'](_0xa8a7e, _0x4e1f('0xa', 'Arbo'), {
-      'value': !0x0
-    });
-  }, _0x268bfd['t'] = function(_0x5518c9, _0x2d1bbc) {
-    if (0x1 & _0x2d1bbc && (_0x5518c9 = _0x268bfd(_0x5518c9)), 0x8 & _0x2d1bbc) return _0x5518c9;
-    if (0x4 & _0x2d1bbc && 'object' == typeof _0x5518c9 && _0x5518c9 && _0x5518c9[_0x4e1f('0xb', 'BtKl')]) return _0x5518c9;
-    var _0x37347f = Object['create'](null);
-    if (_0x268bfd['r'](_0x37347f), Object[_0x4e1f('0xc', 'OF2)')](_0x37347f, 'default', {
-        'enumerable': !0x0,
-        'value': _0x5518c9
-      }), 0x2 & _0x2d1bbc && _0x4e1f('0xd', 'VqZ7') != typeof _0x5518c9)
-      for (var _0x2b2a4e in _0x5518c9) _0x268bfd['d'](_0x37347f, _0x2b2a4e, function(_0x466464) {
-        return _0x5518c9[_0x466464];
-      } [_0x4e1f('0xe', 'yPkL')](null, _0x2b2a4e));
-    return _0x37347f;
-  }, _0x268bfd['n'] = function(_0x25eece) {
-    var _0x3f42e9 = _0x25eece && _0x25eece[_0x4e1f('0xf', 'Ficv')] ? function() {
-      return _0x25eece[_0x4e1f('0x10', 'yEq%')];
-    } : function() {
-      return _0x25eece;
-    };
-    return _0x268bfd['d'](_0x3f42e9, 'a', _0x3f42e9), _0x3f42e9;
-  }, _0x268bfd['o'] = function(_0x5570d6, _0x5eaf39) {
-    return Object['prototype'][_0x4e1f('0x11', 'OF2)')][_0x4e1f('0x12', '!4ad')](_0x5570d6, _0x5eaf39);
-  }, _0x268bfd['p'] = '', _0x268bfd(_0x268bfd['s'] = 0x18b);
-}({
-  395: function(_0x316d65, _0x16e76b, _0x1f8b30) {
-    'use strict';
-    _0x1f8b30['r'](_0x16e76b);
 
-    // load emulator.js then construct EJS safely
-    var _0x2fbf67 = document;
-    var _0x59b8a1 = 'script';
-    var _0x46b578 = _0x1f8b30(0x38);
+  // Try to find the constructor after emulator.js loads.
+  // This is the core fix for "EJS is missing after emulator.js load".
+  function pickCtor() {
+    var ctor = null;
 
-    // Build emulator.js URL (keep your obfuscated join call)
-    var _0x3c68b9 = [EJS_pathtodata + 'emulator.js?v=', _0x46b578['a']][_0x4e1f('0x19', 'dT&&')]('');
+    // Most likely
+    ctor = window.EJS;
+    if (ctor && typeof ctor === 'object' && typeof ctor.default === 'function') ctor = ctor.default;
+    if (typeof ctor === 'function') return ctor;
 
-    var _0x44b634 = _0x2fbf67[_0x4e1f('0x1a', '!4ad')](_0x59b8a1);
-    var _0x2766bb = _0x2fbf67[_0x4e1f('0x1b', '%y@C')](_0x59b8a1)[0x0];
+    // Common alternates
+    var alt = window.EmulatorJS || window.Emulator || window.EJS_Emulator;
+    if (alt && typeof alt === 'object' && typeof alt.default === 'function') alt = alt.default;
+    if (typeof alt === 'function') return alt;
 
-    _0x44b634[_0x4e1f('0x1c', 'B^qF')] = 0x1; // async
-    _0x44b634['src'] = _0x3c68b9;
+    // Nothing found
+    return null;
+  }
 
-    // NEW: clear error if emulator.js fails to load
-    _0x44b634['onerror'] = function(_0xerr) {
-      console['error']('Failed to load emulator.js:', _0x3c68b9, _0xerr);
-      throw new Error('emulator.js failed to load: ' + _0x3c68b9);
-    };
+  // Load emulator.js and return a promise that resolves when loaded
+  function loadScript(src) {
+    return new Promise(function (resolve, reject) {
+      var s = document.createElement('script');
+      s.async = true;
+      s.src = src;
 
-    _0x2766bb[_0x4e1f('0x1d', 'VqZ7')]['insertBefore'](_0x44b634, _0x2766bb);
+      s.onload = function () { resolve(); };
+      s.onerror = function (e) { reject(e); };
 
-    // onload: create config + build emulator instance
-    _0x44b634[_0x4e1f('0x1e', '@G9C')] = function() {
-      var _0xcfg = {};
-
-      _0xcfg[_0x4e1f('0x1f', 'lTHs')] = EJS_gameUrl;
-      _0x4e1f('0x20', 'Zn6#') != typeof EJS_biosUrl && (_0xcfg['biosUrl'] = EJS_biosUrl);
-      _0x4e1f('0x21', 'lTHs') != typeof EJS_gameID && (_0xcfg['gameId'] = EJS_gameID);
-      _0x4e1f('0x22', '2tYP') != typeof EJS_gameParentUrl && (_0xcfg[_0x4e1f('0x23', 'Mrqk')] = EJS_gameParentUrl);
-      _0x4e1f('0x24', 'B^qF') != typeof EJS_gamePatchUrl && (_0xcfg[_0x4e1f('0x25', '[7fg')] = EJS_gamePatchUrl);
-
-      _0xcfg['system'] = EJS_core;
-      _0xcfg[_0x4e1f('0x26', '5Wvf')] = null;
-      _0xcfg['onloadstate'] = null;
-
-      _0x4e1f('0x27', 'iZmJ') != typeof EJS_onSaveState && (_0xcfg[_0x4e1f('0x28', 'yEq%')] = EJS_onSaveState);
-      _0x4e1f('0x20', 'Zn6#') != typeof EJS_onLoadState && (_0xcfg['onloadstate'] = EJS_onLoadState);
-      _0x4e1f('0x29', 'UFV*') != typeof EJS_lightgun && (_0xcfg[_0x4e1f('0x2a', 'B^qF')] = EJS_lightgun);
-      _0x4e1f('0x2b', '93uJ') != typeof EJS_mouse && (_0xcfg[_0x4e1f('0x2c', 'BtKl')] = EJS_mouse);
-      _0x4e1f('0x2d', '[7fg') != typeof EJS_multitap && (_0xcfg[_0x4e1f('0x2e', '%y@C')] = EJS_multitap);
-      _0x4e1f('0x2f', '3r7P') != typeof EJS_playerName && (_0xcfg[_0x4e1f('0x30', 'AhBT')] = EJS_playerName);
-      _0x4e1f('0x31', 'SYvu') != typeof EJS_cheats && (_0xcfg[_0x4e1f('0x32', '3r7P')] = EJS_cheats);
-      _0x4e1f('0x2d', '[7fg') != typeof EJS_color && (_0xcfg[_0x4e1f('0x33', '93uJ')] = EJS_color);
-
-      // NEW: resolve constructor safely (EJS or EJS.default)
-      var _0xEJS_CTOR = window['EJS'];
-      if (_0xEJS_CTOR && typeof _0xEJS_CTOR === 'object' && typeof _0xEJS_CTOR['default'] === 'function') {
-        _0xEJS_CTOR = _0xEJS_CTOR['default'];
+      // Insert before first script tag for compatibility
+      var first = document.getElementsByTagName('script')[0];
+      if (first && first.parentNode) {
+        first.parentNode.insertBefore(s, first);
+      } else {
+        document.head.appendChild(s);
       }
-
-      if (typeof _0xEJS_CTOR !== 'function') {
-        console['error']('EJS is missing after emulator.js load. URL:', _0x3c68b9);
-        console['error']('typeof window.EJS:', typeof window['EJS']);
-        throw new TypeError('EJS is not a constructor (missing)');
-      }
-
-      window['EJS_emulator'] = new _0xEJS_CTOR(EJS_player, _0xcfg);
-
-      'undefined' != typeof EJS_onGameStart && window['EJS_emulator']['on']('start-game', EJS_onGameStart);
-    };
-  },
-  56: function(_0x258889, _0x2c8954, _0x2cdd3a) {
-    'use strict';
-    _0x2c8954['a'] = _0x4e1f('0x35', 'HLmO');
+    });
   }
-})[_0x4e1f('0x36', '@G9C')];
+
+  async function start() {
+    checkNewestVersion();
+
+    // EJS_pathtodata default
+    if (!defined(window.EJS_pathtodata) || !isString(window.EJS_pathtodata) || !window.EJS_pathtodata.length) {
+      window.EJS_pathtodata = './';
+    }
+
+    // Normalize to an absolute base path
+    window.EJS_pathtodata = normalizeBasePath(window.EJS_pathtodata);
+    safeLog('Path to data is set to ' + window.EJS_pathtodata);
+
+    // Required globals must exist before we construct
+    assertRequiredGlobals();
+
+    // Compose emulator.js URL
+    // If you want cache busting, keep a stable version string here.
+    var emuUrl = window.EJS_pathtodata + 'emulator.js?v=0.4.23';
+
+    // Load emulator.js
+    try {
+      await loadScript(emuUrl);
+    } catch (e) {
+      safeError('Failed to load emulator.js:', emuUrl, e);
+      throw new Error('emulator.js failed to load: ' + emuUrl);
+    }
+
+    // Find ctor
+    var ctor = pickCtor();
+    if (typeof ctor !== 'function') {
+      safeError('EJS constructor missing after emulator.js load. URL:', emuUrl);
+      safeError('typeof window.EJS:', typeof window.EJS);
+      safeError('typeof window.EmulatorJS:', typeof window.EmulatorJS);
+      safeError('typeof window.Emulator:', typeof window.Emulator);
+      throw new TypeError('EJS is not a constructor (missing)');
+    }
+
+    // Build cfg and construct
+    var cfg = buildCfg();
+    var inst = new ctor(window.EJS_player, cfg);
+
+    // Expose instance in the most compatible way
+    window.EJS_emulator = inst;
+
+    // Some themes expect the instance elsewhere too, keep both
+    // (If you do not want duplicates, delete the next line.)
+    window.EJS = window.EJS || ctor;
+
+    // Hook start-game if present
+    if (defined(window.EJS_onGameStart) && inst && typeof inst.on === 'function') {
+      inst.on('start-game', window.EJS_onGameStart);
+    }
+  }
+
+  // Run
+  start().catch(function (e) {
+    safeError('loader.js fatal error:', e);
+  });
+})();
