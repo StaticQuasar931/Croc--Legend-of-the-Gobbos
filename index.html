@@ -9,7 +9,6 @@
   <meta name="description" content="Play Croc: Legend of the Gobbos unblocked in your browser. School-safe, Chromebook-friendly PS1 emulator play page with quick links by StaticQuasar931." />
   <meta name="robots" content="index, follow, max-image-preview:large" />
   <meta name="theme-color" content="#000000" />
-
   <link rel="canonical" href="https://staticquasar931.github.io/Croc--Legend-of-the-Gobbos/" />
 
   <!-- Social -->
@@ -18,14 +17,16 @@
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://staticquasar931.github.io/Croc--Legend-of-the-Gobbos/" />
   <meta property="og:image" content="https://cdn.jsdelivr.net/gh/StaticQuasar931/Images@main/icon.png" />
-
   <link rel="icon" type="image/png" href="https://cdn.jsdelivr.net/gh/StaticQuasar931/Images@main/icon.png" />
 
   <style>
     :root{
       --brand:#5ee1ff;
+      --brand2:#9bffb7;
       --glow:0 0 12px rgba(94,225,255,.65), 0 0 32px rgba(155,255,183,.35);
       --shadow:0 10px 30px rgba(0,0,0,.4);
+      --panel:rgba(0,0,0,.62);
+      --panelBorder:rgba(94,225,255,.28);
     }
     html, body{
       margin:0;
@@ -36,18 +37,8 @@
       overflow:hidden;
     }
 
-    .frame-game{
-      position:fixed;
-      inset:0;
-      width:100%;
-      height:100%;
-    }
-    #retroGame{
-      position:absolute;
-      inset:0;
-      width:100%;
-      height:100%;
-    }
+    .frame-game{ position:fixed; inset:0; width:100%; height:100%; }
+    #retroGame{ position:absolute; inset:0; width:100%; height:100%; }
 
     #retroGameThumbImg{
       position:absolute;
@@ -65,6 +56,7 @@
       box-shadow:0 18px 50px rgba(0,0,0,.55);
     }
 
+    /* Static Menu */
     #staticMenu{
       position:fixed; left:12px; top:12px; z-index:9999;
       display:flex; gap:10px; align-items:center; user-select:none;
@@ -74,13 +66,14 @@
       color:#e8f3ff; box-shadow:var(--glow), var(--shadow);
       font-size:14px; animation:menuEnter .6s ease .15s both;
     }
-    #staticMenu a{ color:#5ee1ff; font-weight:800; text-decoration:none }
+    #staticMenu a{ color:var(--brand); font-weight:800; text-decoration:none }
     #closeStaticMenu{
       color:#f55; cursor:pointer; padding:2px 6px; border-radius:6px;
       border:1px solid rgba(255,255,255,.15); background:rgba(255,255,255,.06)
     }
     @keyframes menuEnter{ from{opacity:0; transform:translateY(-8px)} to{opacity:1; transform:translateY(0)} }
 
+    /* Rotator */
     #staticSlideMenu{
       position:fixed; bottom:24px; right:24px; z-index:9999;
       width:100px; height:100px; pointer-events:none; opacity:0;
@@ -102,22 +95,23 @@
       clip:rect(1px,1px,1px,1px); white-space:nowrap;
     }
 
-    /* Loader (bigger + bottom-middle) */
+    /* Loader (bottom-middle, polished) */
     #romStatus{
       position:fixed;
       left:50%;
       bottom:18px;
-      transform:translateX(-50%);
+      transform:translateX(-50%) translateY(0);
       z-index:99999;
       font-size:15px;
-      padding:10px 14px;
-      border-radius:12px;
-      background:rgba(0,0,0,.62);
-      border:1px solid rgba(94,225,255,.28);
+      padding:12px 14px;
+      border-radius:14px;
+      background:var(--panel);
+      border:1px solid var(--panelBorder);
       box-shadow:0 0 16px rgba(94,225,255,.28);
-      max-width:min(94vw, 820px);
+      max-width:min(94vw, 860px);
       text-align:center;
       display:none;
+      opacity:1;
       backdrop-filter: blur(6px);
     }
     #romStatus .row{
@@ -126,17 +120,12 @@
       align-items:center;
       justify-content:center;
       flex-wrap:wrap;
+      margin-bottom:6px;
     }
-    #romStatus .title{
-      font-weight:800;
-      letter-spacing:.2px;
-    }
-    #romStatus .sub{
-      opacity:.9;
-      font-size:13px;
-    }
+    #romStatus .title{ font-weight:900; letter-spacing:.2px; }
+    #romStatus .sub{ opacity:.9; font-size:13px; }
     #romStatus .barWrap{
-      width:min(520px, 86vw);
+      width:min(540px, 86vw);
       height:10px;
       border-radius:999px;
       background:rgba(255,255,255,.10);
@@ -158,11 +147,32 @@
       font-size:12px;
       margin-top:6px;
     }
+    #romStatus .spark{
+      display:inline-block;
+      width:10px; height:10px;
+      border-radius:999px;
+      background:radial-gradient(circle, rgba(94,225,255,1), rgba(94,225,255,0));
+      box-shadow:0 0 18px rgba(94,225,255,.55);
+      animation:spark 1.2s ease-in-out infinite;
+    }
+    @keyframes spark{
+      0%,100%{ transform:scale(.75); opacity:.75; }
+      50%{ transform:scale(1.25); opacity:1; }
+    }
+
+    /* Cool exit animation */
+    #romStatus.exit{
+      opacity:0;
+      transform:translateX(-50%) translateY(48px);
+      filter:blur(2px);
+      transition:opacity .65s ease, transform .65s ease, filter .65s ease;
+      pointer-events:none;
+    }
 
     @media (max-width:600px){
       #staticMenu{ font-size:13px; padding:8px 12px }
       #staticSlideMenu{ width:88px; height:88px }
-      #romStatus{ font-size:14px; padding:10px 12px; bottom:14px }
+      #romStatus{ font-size:14px; padding:11px 12px; bottom:14px }
     }
   </style>
 </head>
@@ -212,12 +222,6 @@
     // EmulatorJS data path (your existing local folder)
     window.EJS_pathtodata = "./themes/retrogamesonline.io/rs/plugins/emulatorjs/";
 
-    // Hide thumb when game starts
-    window.EJS_onGameStart = function () {
-      const t = document.getElementById("retroGameThumbImg");
-      if (t) t.style.display = "none";
-    };
-
     // Debug logs
     console.log("[Croc] EJS_core:", window.EJS_core);
     console.log("[Croc] EJS_pathtodata:", window.EJS_pathtodata);
@@ -242,7 +246,12 @@
       return mb.toFixed(mb >= 10 ? 0 : 1) + " MB";
     }
 
+    // Loader state so it can NEVER come back after removal
+    let ROM_STATUS_REMOVED = false;
+    let ROM_STATUS_HIDDEN = false;
+
     function setStatusUI(title, sub, pct, extra){
+      if (ROM_STATUS_REMOVED || ROM_STATUS_HIDDEN) return;
       const el = document.getElementById("romStatus");
       if (!el) return;
 
@@ -250,6 +259,7 @@
       el.style.display = "block";
       el.innerHTML = `
         <div class="row">
+          <span class="spark" aria-hidden="true"></span>
           <span class="title">${title || "Loading..."}</span>
           <span class="sub">${sub || ""}</span>
         </div>
@@ -260,11 +270,18 @@
       `;
     }
 
-    function hideStatus() {
+    function hideStatusPermanent(){
+      if (ROM_STATUS_REMOVED) return;
       const el = document.getElementById("romStatus");
-      if (!el) return;
-      el.style.display = "none";
-      el.textContent = "";
+      if (!el) { ROM_STATUS_REMOVED = true; return; }
+
+      ROM_STATUS_HIDDEN = true;   // stop future UI updates immediately
+      el.classList.add("exit");
+
+      setTimeout(() => {
+        ROM_STATUS_REMOVED = true;
+        if (el && el.parentNode) el.parentNode.removeChild(el);
+      }, 700);
     }
 
     async function fetchPart(url, idx, total, loadedSoFar, totalBytesKnown) {
@@ -277,6 +294,7 @@
       const lenHeader = res.headers.get("content-length");
       const partSize = lenHeader ? parseInt(lenHeader, 10) : 0;
 
+      // No streaming support fallback
       if (!res.body || !res.body.getReader) {
         setStatusUI(label, sub, ((idx - 1) / total) * 90, "Fetching " + url.split("/").pop());
         const ab = await res.arrayBuffer();
@@ -290,12 +308,14 @@
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
+
         chunks.push(value);
         received += value.byteLength;
 
         const knownTotal = totalBytesKnown > 0 ? totalBytesKnown : 0;
         const numer = loadedSoFar + received;
         const denom = knownTotal > 0 ? knownTotal : 1;
+
         const pct = knownTotal > 0
           ? (numer / denom) * 90
           : ((idx - 1) / total) * 90 + (received / Math.max(partSize || received || 1, 1)) * (90 / total);
@@ -316,6 +336,7 @@
     async function assembleRom(parts) {
       setStatusUI("Preparing game file", "Checking file list...", 2, parts.length + " parts");
 
+      // Try to get full known size via HEAD
       let totalKnown = 0;
       try {
         const heads = await Promise.all(parts.map(async (p) => {
@@ -353,8 +374,7 @@
       setStatusUI("Finalizing", "Creating in-browser file...", 97, fmtMB(total));
 
       const blob = new Blob([out], { type: "application/octet-stream" });
-      const blobUrl = URL.createObjectURL(blob);
-      return blobUrl;
+      return URL.createObjectURL(blob);
     }
 
     function loadLoaderJs() {
@@ -367,40 +387,61 @@
       });
     }
 
-    (async function boot() {
-      try {
-        setStatusUI("Preparing game file", "Starting...", 1, "");
+    // Strong start detection:
+    // 1) EmulatorJS callback (if it fires)
+    // 2) Canvas appears and has non-zero size
+    // 3) Failsafe timeout
+    (function boot(){
+      let done = false;
+      function hideOnce(){
+        if (done) return;
+        done = true;
 
-        const blobUrl = await assembleRom(ROM_PARTS);
+        // Hide thumbnail too
+        const t = document.getElementById("retroGameThumbImg");
+        if (t) t.style.display = "none";
 
-        window.EJS_gameUrl = blobUrl;
-        console.log("[Croc] EJS_gameUrl (blob):", blobUrl);
-
-        setStatusUI("Starting emulator", "Launching...", 99, "Almost there...");
-
-        await loadLoaderJs();
-
-        // Hide when the emulator actually starts, but also fail-safe hide after 30s
-let hid = false;
-function hideOnce(){ if(hid) return; hid = true; hideStatus(); }
-
-window.EJS_onGameStart = function () {
-  const t = document.getElementById("retroGameThumbImg");
-  if (t) t.style.display = "none";
-  hideOnce();
-};
-
-setTimeout(() => {
-  // If still visible after 30s, keep it but change message instead of hiding
-  const el = document.getElementById("romStatus");
-  if (el && el.style.display !== "none") {
-    setStatusUI("Starting emulator", "Still loading...", 99, 'If it stays here, check Console for errors.');
-  }
-}, 30000);
-      } catch (e) {
-        console.error("[Croc] Boot failed:", e);
-        setStatusUI("Game failed to load", (e && e.message ? e.message : String(e)), 0, "Check Console for details.");
+        hideStatusPermanent();
       }
+
+      // Provide/override game-start callback in a safe way
+      window.EJS_onGameStart = function(){
+        hideOnce();
+      };
+
+      (async function(){
+        try{
+          setStatusUI("Preparing game file", "Starting...", 1, "");
+
+          const blobUrl = await assembleRom(ROM_PARTS);
+          window.EJS_gameUrl = blobUrl;
+          console.log("[Croc] EJS_gameUrl (blob):", blobUrl);
+
+          setStatusUI("Starting emulator", "Launching...", 99, "Almost there...");
+
+          await loadLoaderJs();
+
+          // Backup start detection: canvas is created and is usable
+          const root = document.getElementById("retroGame");
+          const observer = new MutationObserver(() => {
+            const canvas = document.querySelector("#retroGame canvas");
+            if (canvas && canvas.width > 0 && canvas.height > 0) {
+              hideOnce();
+              observer.disconnect();
+            }
+          });
+          if (root) observer.observe(root, { childList:true, subtree:true });
+
+          // Final failsafe: hide no matter what after 25s post-loader
+          setTimeout(hideOnce, 25000);
+
+        } catch (e){
+          console.error("[Croc] Boot failed:", e);
+          // In failure cases, keep it visible with error message (do NOT remove)
+          ROM_STATUS_HIDDEN = false;
+          setStatusUI("Game failed to load", (e && e.message ? e.message : String(e)), 0, "Open Console for details.");
+        }
+      })();
     })();
   </script>
 
@@ -449,8 +490,8 @@ setTimeout(() => {
         alt:  "StaticQuasar931 Instagram",
         link: "https://www.instagram.com/freeschoolgamepage/"
       };
-      const ROTATION = [FORM, DISCORD, INSTA];
 
+      const ROTATION = [FORM, DISCORD, INSTA];
       ROTATION.forEach(o => { const p = new Image(); p.src = o.src; });
 
       const T_IN = 2000, T_SHOW = 5000, T_OUT = 2000, T_HIDDEN = 20000;
