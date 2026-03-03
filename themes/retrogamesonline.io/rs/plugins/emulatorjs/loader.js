@@ -72,22 +72,35 @@
 // Keep your blob head-info behavior but make it safe and simple.
 // normalFunc is expected to be a function(url, options) that returns a promise or value.
 window.getHeadGameInfo = function (normalFunc, url) {
-  if (typeof url !== "string" || url.indexOf("blob:") !== 0) {
+  try {
+    if (typeof url !== "string" || url.indexOf("blob:") !== 0) {
+      return normalFunc(url, {});
+    }
+  } catch (e) {
     return normalFunc(url, {});
   }
 
   return (async function () {
-    var r = await fetch(url);
-    var b = await r.blob();
-    return {
-      headers: {
-        "content-length": String(b.size),
-        "content-type": b.type || "application/octet-stream"
-      }
-    };
+    try {
+      var r = await fetch(url);
+      var b = await r.blob();
+      return {
+        headers: {
+          "content-length": String((b && b.size) || 0),
+          "content-type": (b && b.type) || "application/octet-stream"
+        }
+      };
+    } catch (e) {
+      // Fallback: let the loader continue even if blob header check fails
+      return {
+        headers: {
+          "content-length": "0",
+          "content-type": "application/octet-stream"
+        }
+      };
+    }
   })();
-};
-  // ----------------------------
+};  // ----------------------------
   // Validate required globals
   // ----------------------------
   function assertRequiredGlobals() {
@@ -110,6 +123,17 @@ window.getHeadGameInfo = function (normalFunc, url) {
     // Required
     cfg.gameUrl = window.EJS_gameUrl;
     cfg.system = window.EJS_core;
+
+    // IMPORTANT FIX:
+    // Pass the data path into the emulator config so worker/wasm/core files resolve correctly.
+    // Different EmulatorJS builds use different key names, so set several aliases.
+    cfg.pathtodata = window.EJS_pathtodata;
+    cfg.pathToData = window.EJS_pathtodata;
+    cfg.dataPath = window.EJS_pathtodata;
+
+    // IMPORTANT FIX:
+    // Threads/workers can stall on some setups. Turning this off prevents "empty Worker source" issues.
+    cfg.threads = false;
 
     // Optional
     if (defined(window.EJS_biosUrl)) cfg.biosUrl = window.EJS_biosUrl;
