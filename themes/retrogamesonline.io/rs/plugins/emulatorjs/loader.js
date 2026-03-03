@@ -69,27 +69,6 @@
   }
 
 
-
-    // Your repo version.json
-    var url = 'https://cdn.jsdelivr.net/gh/StaticQuasar931/Croc--Legend-of-the-Gobbos@main/version.json';
-
-    try {
-      fetch(url).then(function (res) {
-        if (!res || !res.ok) return;
-        return res.text();
-      }).then(function (body) {
-        if (!body) return;
-        var data;
-        try { data = JSON.parse(body); } catch (e) { return; }
-        if (!data || !data.current_version) return;
-        if (usingVersion !== data.current_version) {
-          safeLog('Using emulatorjs version ' + usingVersion + ' but the newest version is ' + data.current_version);
-        }
-      }).catch(function () {});
-    } catch (e) {}
-  }
-
-
 // Keep your blob head-info behavior but make it safe and simple.
 // normalFunc is expected to be a function(url, options) that returns a promise or value.
 window.getHeadGameInfo = function (normalFunc, url) {
@@ -213,7 +192,6 @@ function loadScript(src, timeoutMs) {
 }
 
   async function start() {
-    checkNewestVersion();
 
     // EJS_pathtodata default
     if (!defined(window.EJS_pathtodata) || !isString(window.EJS_pathtodata) || !window.EJS_pathtodata.length) {
