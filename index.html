@@ -36,7 +36,6 @@
       overflow:hidden;
     }
 
-    /* Emulator container */
     .frame-game{
       position:fixed;
       inset:0;
@@ -50,7 +49,6 @@
       height:100%;
     }
 
-    /* Thumb overlay */
     #retroGameThumbImg{
       position:absolute;
       top:50%;
@@ -67,7 +65,6 @@
       box-shadow:0 18px 50px rgba(0,0,0,.55);
     }
 
-    /* Static Menu (top-left) */
     #staticMenu{
       position:fixed; left:12px; top:12px; z-index:9999;
       display:flex; gap:10px; align-items:center; user-select:none;
@@ -84,7 +81,6 @@
     }
     @keyframes menuEnter{ from{opacity:0; transform:translateY(-8px)} to{opacity:1; transform:translateY(0)} }
 
-    /* Rotating slide-in widget (bottom-right) */
     #staticSlideMenu{
       position:fixed; bottom:24px; right:24px; z-index:9999;
       width:100px; height:100px; pointer-events:none; opacity:0;
@@ -101,10 +97,27 @@
     @keyframes slideIn{ from{opacity:0; transform:translateX(140px) scale(.96)} to{opacity:1; transform:translateX(0) scale(1)} }
     @keyframes slideOut{ from{opacity:1; transform:translateX(0) scale(1)} to{opacity:0; transform:translateX(140px) scale(.96)} }
 
-    /* Hidden SEO helper */
     .seo-hidden{
       position:absolute; width:1px; height:1px; overflow:hidden;
       clip:rect(1px,1px,1px,1px); white-space:nowrap;
+    }
+
+    /* Tiny loader text while assembling the ROM */
+    #romStatus{
+      position:fixed;
+      left:50%;
+      top:10px;
+      transform:translateX(-50%);
+      z-index:99999;
+      font-size:13px;
+      padding:8px 12px;
+      border-radius:10px;
+      background:rgba(0,0,0,.55);
+      border:1px solid rgba(94,225,255,.25);
+      box-shadow:0 0 14px rgba(94,225,255,.25);
+      max-width:min(92vw, 720px);
+      text-align:center;
+      display:none;
     }
 
     @media (max-width:600px){
@@ -115,20 +128,19 @@
 </head>
 
 <body>
-  <!-- Static Menu -->
   <div id="staticMenu" role="region" aria-label="StaticQuasar menu">
     <a href="https://sites.google.com/view/staticquasar931/gm3z" target="_blank" rel="noopener">More Unblocked Games by Static</a>
     <span id="closeStaticMenu" title="Hide temporarily">✕</span>
   </div>
 
-  <!-- Rotating widget -->
   <div id="staticSlideMenu" aria-live="polite">
     <a id="staticSlideLink" href="https://sites.google.com/view/staticquasar931/google-form" target="_blank" rel="noopener" aria-label="Open Google Form">
       <img id="staticSlideImg" src="https://cdn.jsdelivr.net/gh/StaticQuasar931/Images@main/GoogleForm.png" alt="StaticQuasar931 Google Form for feedback and requests">
     </a>
   </div>
 
-  <!-- Emulator -->
+  <div id="romStatus"></div>
+
   <div class="frame-game">
     <div id="retroGame" aria-label="Croc: Legend of the Gobbos emulator player"></div>
 
@@ -144,25 +156,16 @@
   </div>
 
   <script>
-    // Leave warning
     window.onbeforeunload = () => "Are you sure you want to leave? Your session may be interrupted.";
 
     // EmulatorJS config
     window.EJS_player = "#retroGame";
     window.EJS_core = "psx";
 
-    // Local BIOS
+    // BIOS (your existing local BIOS)
     window.EJS_biosUrl = "./bios_retro/psx/psx.7z";
 
-    /*
-      IMPORTANT:
-      Keep the ROM on GitHub Releases (since it's huge),
-      but use the direct release-assets URL (more reliable for emulator fetching).
-      Replace this with your latest direct URL if it changes.
-    */
-    window.EJS_gameUrl = "https://release-assets.githubusercontent.com/github-production-release-asset/1171122270/b3ffbf9d-3326-4732-a1bd-4a492f7c3ea6";
-
-    // Local emulator folder
+    // EmulatorJS data path (your existing local folder)
     window.EJS_pathtodata = "./themes/retrogamesonline.io/rs/plugins/emulatorjs/";
 
     // Hide thumb when game starts
@@ -171,14 +174,97 @@
       if (t) t.style.display = "none";
     };
 
-    // Minimal debug (keep until fully stable)
+    // Debug logs
     console.log("[Croc] EJS_core:", window.EJS_core);
-    console.log("[Croc] EJS_gameUrl:", window.EJS_gameUrl);
     console.log("[Croc] EJS_pathtodata:", window.EJS_pathtodata);
-  </script>
 
-  <!-- EmulatorJS loader (LOCAL) -->
-  <script src="./themes/retrogamesonline.io/rs/plugins/emulatorjs/loader.js"></script>
+// -------------------------
+// ROM assembly (same-origin)
+// -------------------------
+const ROM_PARTS = [
+  "./big_data/ps/psx/croc.pbp.001",
+  "./big_data/ps/psx/croc.pbp.002",
+  "./big_data/ps/psx/croc.pbp.003",
+  "./big_data/ps/psx/croc.pbp.004"
+];
+
+    function showStatus(msg) {
+      const el = document.getElementById("romStatus");
+      if (!el) return;
+      el.style.display = "block";
+      el.textContent = msg;
+    }
+
+    function hideStatus() {
+      const el = document.getElementById("romStatus");
+      if (!el) return;
+      el.style.display = "none";
+    }
+
+    async function fetchPart(url, idx, total) {
+      showStatus("Loading game file: part " + idx + " of " + total + " ...");
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) throw new Error("Failed to fetch ROM part: " + url + " (" + res.status + ")");
+      return await res.arrayBuffer();
+    }
+
+    async function assembleRom(parts) {
+      const bufs = [];
+      for (let i = 0; i < parts.length; i++) {
+        const ab = await fetchPart(parts[i], i + 1, parts.length);
+        bufs.push(new Uint8Array(ab));
+      }
+
+      showStatus("Assembling game file ...");
+
+      let total = 0;
+      for (const b of bufs) total += b.byteLength;
+
+      const out = new Uint8Array(total);
+      let off = 0;
+      for (const b of bufs) {
+        out.set(b, off);
+        off += b.byteLength;
+      }
+
+      const blob = new Blob([out], { type: "application/octet-stream" });
+      const blobUrl = URL.createObjectURL(blob);
+      return blobUrl;
+    }
+
+    function loadLoaderJs() {
+      return new Promise((resolve, reject) => {
+        const s = document.createElement("script");
+        s.src = "./themes/retrogamesonline.io/rs/plugins/emulatorjs/loader.js";
+        s.onload = resolve;
+        s.onerror = () => reject(new Error("Failed to load loader.js"));
+        document.body.appendChild(s);
+      });
+    }
+
+    (async function boot() {
+      try {
+        showStatus("Preparing game file ...");
+
+        // If you only have 2 parts, delete the 3rd line in ROM_PARTS and it will still work.
+        // If part3 does not exist, the fetch will fail.
+        // So make sure ROM_PARTS matches exactly what you uploaded.
+
+        const blobUrl = await assembleRom(ROM_PARTS);
+
+        window.EJS_gameUrl = blobUrl;
+        console.log("[Croc] EJS_gameUrl (blob):", blobUrl);
+
+        hideStatus();
+
+        // Now start EmulatorJS only after ROM is ready
+        await loadLoaderJs();
+      } catch (e) {
+        console.error("[Croc] Boot failed:", e);
+        showStatus("Game failed to load: " + (e && e.message ? e.message : String(e)));
+      }
+    })();
+  </script>
 
   <script>
     // Static Menu show/hide with 3 minute return
@@ -204,7 +290,7 @@
       if (btn) btn.onclick = hideFor3m;
     })();
 
-    // Rotator: Google Form → Discord → Instagram
+    // Rotator: Google Form → Discord → Instagram (you said ignore Instagram image issues)
     (function(){
       const wrap = document.getElementById("staticSlideMenu");
       const a    = document.getElementById("staticSlideLink");
@@ -221,13 +307,12 @@
         link: "https://discord.gg/DP2hM7RRhR"
       };
       const INSTA = {
-        src:  "https://cdn.jsdelivr.net/gh/StaticQuasar931/Images@main/Follow-us--IG",
+        src:  "https://cdn.jsdelivr.net/gh/StaticQuasar931/Images@main/Follow-us--IG.png",
         alt:  "StaticQuasar931 Instagram",
         link: "https://www.instagram.com/freeschoolgamepage/"
       };
       const ROTATION = [FORM, DISCORD, INSTA];
 
-      // Preload
       ROTATION.forEach(o => { const p = new Image(); p.src = o.src; });
 
       const T_IN = 2000, T_SHOW = 5000, T_OUT = 2000, T_HIDDEN = 20000;
@@ -259,7 +344,7 @@
       })();
     })();
 
-    // Keyboard secret toggle: y + u + i
+    // Keyboard secret toggle: y + u + i to toggle all Visual SEO
     (function(){
       const idsToToggle = ["staticMenu", "staticSlideMenu"];
       let seq = [];
@@ -280,12 +365,11 @@
     })();
   </script>
 
-  <!-- Hidden SEO text -->
   <div class="seo-hidden" aria-hidden="true">
     <h1>Croc: Legend of the Gobbos Unblocked</h1>
     <p>
       Play Croc: Legend of the Gobbos unblocked directly in your browser with a school-safe setup designed to work on Chromebooks and typical school networks.
-      This page loads Croc from a hosted download URL and uses local emulator assets for best compatibility.
+      This page loads the Croc PBP from the same GitHub Pages site by splitting it into multiple parts for best compatibility.
       Keywords: static, staticquasar, staticquasar931, static 931, staticq, staticq931, 931, unblocked, unbl0cked, school-safe, working at school, croc unblocked, croc g@me.
     </p>
   </div>
