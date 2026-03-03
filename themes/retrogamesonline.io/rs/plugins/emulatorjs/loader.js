@@ -4,9 +4,7 @@
   // -------------------------------------------------
   // DIAGNOSTIC MODE
   // -------------------------------------------------
-  // Leave this ON until we see the logs.
-  // After it is fixed, you can set it to false.
-  var DIAG = true;
+  var DIAG = true; // set false after it works
 
   // -----------------------------
   // Small helpers
@@ -22,10 +20,6 @@
     if (!DIAG) return;
     try { console.log.apply(console, ['[EJS-DIAG]'].concat([].slice.call(arguments))); } catch (e) {}
   }
-  function dwarn() {
-    if (!DIAG) return;
-    try { console.warn.apply(console, ['[EJS-DIAG]'].concat([].slice.call(arguments))); } catch (e) {}
-  }
   function derror() {
     if (!DIAG) return;
     try { console.error.apply(console, ['[EJS-DIAG]'].concat([].slice.call(arguments))); } catch (e) {}
@@ -35,7 +29,6 @@
     return url.endsWith('/') ? url : (url + '/');
   }
 
-  // Always show parse/runtime errors, even if emulator.js breaks badly
   window.addEventListener('error', function (ev) {
     try {
       safeError('window.error:', ev && (ev.message || ev.type), ev && ev.filename, ev && ev.lineno, ev && ev.colno, ev && ev.error);
@@ -43,24 +36,15 @@
   });
 
   window.addEventListener('unhandledrejection', function (ev) {
-    try {
-      safeError('unhandledrejection:', ev && ev.reason);
-    } catch (e) {}
+    try { safeError('unhandledrejection:', ev && ev.reason); } catch (e) {}
   });
 
-  // Normalize a base path to an absolute URL.
   function normalizeBasePath(input) {
     var raw = isString(input) && input.length ? input : './';
 
-    if (raw.indexOf('http://') === 0 || raw.indexOf('https://') === 0) {
-      return ensureTrailingSlash(raw);
-    }
-    if (raw.indexOf('//') === 0) {
-      return ensureTrailingSlash(window.location.protocol + raw);
-    }
-    if (raw.indexOf('/') === 0) {
-      return ensureTrailingSlash(window.location.protocol + '//' + window.location.host + raw);
-    }
+    if (raw.indexOf('http://') === 0 || raw.indexOf('https://') === 0) return ensureTrailingSlash(raw);
+    if (raw.indexOf('//') === 0) return ensureTrailingSlash(window.location.protocol + raw);
+    if (raw.indexOf('/') === 0) return ensureTrailingSlash(window.location.protocol + '//' + window.location.host + raw);
 
     try {
       var abs = new URL(raw, window.location.href).href;
@@ -71,46 +55,34 @@
   }
 
   // -------------------------------------------------
-  // DIAGNOSTIC HOOKS: Worker + locateFile visibility
+  // Worker diagnostic wrapper
   // -------------------------------------------------
-  // The "Attempting to create a Worker from an empty source" is the smoking gun.
-  // This patch logs EXACTLY what Worker arg is used, and stops the app with a clear error
-  // if it tries to do new Worker("") or new Worker(undefined).
   var RealWorker = window.Worker;
   if (RealWorker && !RealWorker.__ejs_diag_wrapped) {
     function WrappedWorker(url, opts) {
-      try {
-        var u = url;
-        var t = (typeof u);
+      if (DIAG) {
         var shown = '';
-        try { shown = String(u); } catch (e) { shown = '[unstringable]'; }
+        try { shown = String(url); } catch (e) { shown = '[unstringable]'; }
+        dlog('Worker() called with:', { type: typeof url, url: shown });
 
-        dlog('Worker() called with:', { type: t, url: shown });
-
-        // Catch "empty source" immediately so we know what called it.
-        if (!u || (isString(u) && u.trim() === '')) {
-          derror('EMPTY Worker source detected. This is why it hangs on Loading.');
-          // Print a small stack so we can identify where it comes from
-          try { throw new Error('EJS empty Worker source stack'); } catch (err) { derror(err && err.stack ? err.stack : err); }
-          throw new Error('Blocked empty Worker() source. See [EJS-DIAG] logs above.');
+        // If it's empty, log stack, but DO NOT throw (unless you are actively debugging)
+        if (!url || (isString(url) && url.trim() === '')) {
+          derror('EMPTY Worker source detected (this usually causes infinite loading).');
+          try { throw new Error('Empty Worker source stack'); } catch (err) {
+            derror(err && err.stack ? err.stack : err);
+          }
         }
-      } catch (e) {
-        // If our logging throws, do not hide the original problem
-        derror('Worker diag wrapper error:', e);
       }
       return new RealWorker(url, opts);
     }
     WrappedWorker.__ejs_diag_wrapped = true;
     window.Worker = WrappedWorker;
     dlog('Installed Worker() diagnostic wrapper');
-  } else {
-    dlog('Worker() not available or already wrapped');
   }
 
   // -------------------------------------------------
   // Blob head-info behavior for EJS_gameUrl=blob:
   // -------------------------------------------------
-  // normalFunc is expected to be a function(url, options) that returns a promise or value.
   window.getHeadGameInfo = function (normalFunc, url) {
     try {
       if (typeof url !== "string" || url.indexOf("blob:") !== 0) {
@@ -141,34 +113,28 @@
     })();
   };
 
-  // ----------------------------
-  // Validate required globals
-  // ----------------------------
   function assertRequiredGlobals() {
     var missing = [];
     if (!defined(window.EJS_player)) missing.push('EJS_player');
     if (!defined(window.EJS_core)) missing.push('EJS_core');
     if (!defined(window.EJS_gameUrl)) missing.push('EJS_gameUrl');
-
     if (missing.length) {
       safeError('loader.js missing required globals:', missing.join(', '));
       throw new Error('Missing required globals: ' + missing.join(', '));
     }
   }
 
-  // Build the config object from EJS_* globals
   function buildCfg() {
     var cfg = {};
-
     cfg.gameUrl = window.EJS_gameUrl;
     cfg.system = window.EJS_core;
 
-    // Pass data path aliases
+    // Data path aliases for different EmulatorJS builds
     cfg.pathtodata = window.EJS_pathtodata;
     cfg.pathToData = window.EJS_pathtodata;
     cfg.dataPath = window.EJS_pathtodata;
 
-    // Try disabling threads
+    // Try disabling threads in the EmulatorJS layer
     cfg.threads = false;
 
     if (defined(window.EJS_biosUrl)) cfg.biosUrl = window.EJS_biosUrl;
@@ -176,10 +142,8 @@
     if (defined(window.EJS_gameParentUrl)) cfg.gameParentUrl = window.EJS_gameParentUrl;
     if (defined(window.EJS_gamePatchUrl)) cfg.gamePatchUrl = window.EJS_gamePatchUrl;
 
-    cfg.onsavestate = null;
-    cfg.onloadstate = null;
-    if (defined(window.EJS_onSaveState)) cfg.onsavestate = window.EJS_onSaveState;
-    if (defined(window.EJS_onLoadState)) cfg.onloadstate = window.EJS_onLoadState;
+    cfg.onsavestate = defined(window.EJS_onSaveState) ? window.EJS_onSaveState : null;
+    cfg.onloadstate = defined(window.EJS_onLoadState) ? window.EJS_onLoadState : null;
 
     if (defined(window.EJS_lightgun)) cfg.lightgun = window.EJS_lightgun;
     if (defined(window.EJS_mouse)) cfg.mouse = window.EJS_mouse;
@@ -192,11 +156,8 @@
     return cfg;
   }
 
-  // Try to find the constructor after emulator.js loads.
   function pickCtor() {
-    var ctor = null;
-
-    ctor = window.EJS;
+    var ctor = window.EJS;
     if (ctor && typeof ctor === 'object' && typeof ctor.default === 'function') ctor = ctor.default;
     if (typeof ctor === 'function') return ctor;
 
@@ -254,48 +215,26 @@
 
     assertRequiredGlobals();
 
-    // IMPORTANT: Use a stable URL for mainScriptUrlOrBlob without query params for some builds
+    // Use no-query version for Emscripten hints, query version for cache bust
     var emuUrlNoQuery = window.EJS_pathtodata + 'emulator.js';
     var emuUrl = emuUrlNoQuery + '?v=0.4.23';
 
-    // Emscripten Module hints
-// IMPORTANT FIX:
-// Your build is spawning a secondary Worker from inside the first Worker and ending up with "".
-// That is pthread logic not getting a valid script URL.
-// These Module flags must be set BEFORE emulator.js runs.
+    // Emscripten Module hints MUST be set BEFORE loading emulator.js
+    try {
+      window.Module = window.Module || {};
+      window.Module.locateFile = function (path) {
+        return window.EJS_pathtodata + path;
+      };
+      window.Module.mainScriptUrlOrBlob = emuUrlNoQuery;
 
-try {
-  window.Module = window.Module || {};
+      window.Module.print = function () { safeLog.apply(null, arguments); };
+      window.Module.printErr = function () { safeError.apply(null, arguments); };
 
-  // Always resolve support files from your pathtodata folder
-  window.Module.locateFile = function (path, prefix) {
-    return window.EJS_pathtodata + path;
-  };
-
-  // Use NO query string here (some worker bootstraps choke on it)
-  var emuMainNoQuery = window.EJS_pathtodata + 'emulator.js';
-
-  // Critical: tell Emscripten what the "main script URL" is
-  window.Module.mainScriptUrlOrBlob = emuMainNoQuery;
-
-  // Critical: pthread-related hints (different Emscripten builds use different names)
-  window.Module.pthreadMainRuntimeThreadScript = emuMainNoQuery;
-  window.Module.pthreadWorkerUrl = emuMainNoQuery;
-  window.Module.pthreadWorkerFile = emuMainNoQuery;
-
-  // Hard disable pthread creation
-  window.Module.PTHREAD_POOL_SIZE = 0;
-  window.Module.pthreadPoolSize = 0;
-  window.Module.__pthreadPoolSize = 0;
-
-  // Pipe logs
-  window.Module.print = function () { safeLog.apply(null, arguments); };
-  window.Module.printErr = function () { safeError.apply(null, arguments); };
-} catch (e) {}
-      derror('Failed to configure Module hints:', e);
+      dlog('Module.mainScriptUrlOrBlob set to:', emuUrlNoQuery);
+    } catch (e) {
+      derror('Failed to configure Module hints:', e && e.stack ? e.stack : e);
     }
 
-    // Load emulator.js
     try {
       dlog('Loading emulator.js:', emuUrl);
       await loadScript(emuUrl);
@@ -305,7 +244,6 @@ try {
       throw new Error('emulator.js failed to load: ' + emuUrl);
     }
 
-    // Give emulator.js a moment to attach globals
     var ctor = null;
     for (var i = 0; i < 60; i++) {
       ctor = pickCtor();
@@ -321,7 +259,7 @@ try {
       throw new TypeError('EJS is not a constructor (missing)');
     }
 
-    dlog('Picked constructor:', ctor && ctor.name ? ctor.name : '(anonymous function)');
+    dlog('Picked constructor:', ctor && ctor.name ? ctor.name : '(anonymous)');
 
     var cfg = buildCfg();
     dlog('Final cfg:', cfg);
