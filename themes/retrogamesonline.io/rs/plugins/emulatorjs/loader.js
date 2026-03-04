@@ -2,43 +2,44 @@
   'use strict';
 
   // =================================================
-  // EmulatorJS loader.js (robust Worker empty-source fix)
+  // EmulatorJS loader.js
+  // Fix: Firefox "Attempting to create a Worker from an empty source"
+  //
+  // Strategy:
+  // - Intercept Worker(blobUrl)
+  // - Replace it with a non-empty bootstrap Worker
+  // - Bootstrap imports:
+  //     1) the original blobUrl (preserves EmulatorJS behavior if it was not empty)
+  //     2) emulator.js (ensures core code is available)
+  //
+  // This avoids sync XHR probes and fixes the warning at the actual source:
+  // the Worker script payload is never empty.
   // =================================================
-  // Drop this file here (replace the existing one):
-  // /themes/retrogamesonline.io/rs/plugins/emulatorjs/loader.js
-  //
-  // Why this version:
-  // Firefox shows "Attempting to create a Worker from an empty source"
-  // when EmulatorJS tries to start the emulation Worker from a Blob URL
-  // whose script content is empty (or effectively empty).
-  //
-  // This loader installs a safe Worker wrapper:
-  // - It probes blob: URLs synchronously (only when a Worker is being created)
-  // - If the blob script is empty (or effectively empty), it replaces it with
-  //   a non-empty bootstrap that importScripts() emulator.js
-  //
-  // This aims to get you past the start button hang and actually boot the core.
 
-  // Set true for extra console logging
   var DIAG = true;
 
-  // -----------------------------
-  // Helpers
-  // -----------------------------
   function isString(v) { return typeof v === 'string'; }
   function defined(v) { return typeof v !== 'undefined'; }
 
-  function safeLog()  { try { console.log.apply(console, arguments); } catch (e) {} }
+  function safeLog() { try { console.log.apply(console, arguments); } catch (e) {} }
   function safeWarn() { try { console.warn.apply(console, arguments); } catch (e) {} }
-  function safeError(){ try { console.error.apply(console, arguments); } catch (e) {} }
+  function safeError() { try { console.error.apply(console, arguments); } catch (e) {} }
 
-  function dlog()  { if (!DIAG) return; safeLog.apply(null, ['[EJS-DIAG]'].concat([].slice.call(arguments))); }
-  function dwarn() { if (!DIAG) return; safeWarn.apply(null, ['[EJS-DIAG]'].concat([].slice.call(arguments))); }
-  function derror(){ if (!DIAG) return; safeError.apply(null, ['[EJS-DIAG]'].concat([].slice.call(arguments))); }
+  function dlog() {
+    if (!DIAG) return;
+    try { console.log.apply(console, ['[EJS-DIAG]'].concat([].slice.call(arguments))); } catch (e) {}
+  }
+  function dwarn() {
+    if (!DIAG) return;
+    try { console.warn.apply(console, ['[EJS-DIAG]'].concat([].slice.call(arguments))); } catch (e) {}
+  }
+  function derror() {
+    if (!DIAG) return;
+    try { console.error.apply(console, ['[EJS-DIAG]'].concat([].slice.call(arguments))); } catch (e) {}
+  }
 
   function ensureTrailingSlash(url) {
-    if (!isString(url)) return url;
-    return url.endsWith('/') ? url : (url + '/');
+    return url && url.endsWith('/') ? url : (url + '/');
   }
 
   function normalizeBasePath(input) {
@@ -49,13 +50,13 @@
     if (raw.indexOf('/') === 0) return ensureTrailingSlash(window.location.protocol + '//' + window.location.host + raw);
 
     try {
-      return ensureTrailingSlash(new URL(raw, window.location.href).href);
+      var abs = new URL(raw, window.location.href).href;
+      return ensureTrailingSlash(abs);
     } catch (e) {
       return window.location.protocol + '//' + window.location.host + '/';
     }
   }
 
-  // Crash logging
   window.addEventListener('error', function (ev) {
     try {
       safeError('window.error:', ev && (ev.message || ev.type), ev && ev.filename, ev && ev.lineno, ev && ev.colno, ev && ev.error);
@@ -69,8 +70,6 @@
   // -------------------------------------------------
   // Blob head-info behavior for EJS_gameUrl=blob:
   // -------------------------------------------------
-  // Some EmulatorJS builds may try to HEAD the game URL.
-  // For blob: URLs, we provide a safe "fake HEAD" using fetch(blob) to get size/type.
   window.getHeadGameInfo = function (normalFunc, url) {
     try {
       if (typeof url !== "string" || url.indexOf("blob:") !== 0) return normalFunc(url, {});
@@ -99,9 +98,6 @@
     })();
   };
 
-  // ----------------------------
-  // Validate required globals
-  // ----------------------------
   function assertRequiredGlobals() {
     var missing = [];
     if (!defined(window.EJS_player)) missing.push('EJS_player');
@@ -114,10 +110,8 @@
     }
   }
 
-  // Build config from EJS_* globals
   function buildCfg() {
     var cfg = {};
-
     cfg.gameUrl = window.EJS_gameUrl;
     cfg.system = window.EJS_core;
 
@@ -126,15 +120,6 @@
     cfg.dataPath = window.EJS_pathtodata;
 
     // Hard disable threads
-    cfg.threads = false;
-    cfg.pthreads = false;
-    cfg.threading = false;
-
-    // Some builds check these globals too
-    if (defined(window.EJS_threads)) cfg.threads = !!window.EJS_threads;
-    if (defined(window.EJS_pthreads)) cfg.pthreads = !!window.EJS_pthreads;
-
-    // You want them disabled no matter what
     cfg.threads = false;
     cfg.pthreads = false;
     cfg.threading = false;
@@ -210,65 +195,24 @@
     }
   }
 
-  // -------------------------------------------------
-  // Worker empty-source fix (Firefox)
-  // -------------------------------------------------
-  // We probe the blob URL the moment Worker(blobUrl) is called.
-  // If the script is empty after stripping whitespace and comments,
-  // we replace it with bootstrap: importScripts(emulator.js)
-  //
-  // This uses sync XHR only on the "start-game" path, not during page load.
-  // You will still see a deprecation warning about sync XHR, but that warning
-  // is far better than the emulator never starting.
-  function installWorkerEmptySourceFix(emuMainNoQuery) {
+  // =================================================
+  // Worker wrapper: guarantees non-empty source for blob workers
+  // =================================================
+  function installWorkerFix(emuMainNoQuery) {
     var URLObj = window.URL || window.webkitURL;
     var RealWorker = window.Worker;
-    if (!RealWorker) return;
+    if (!RealWorker || RealWorker.__ejs_worker_fix_installed) return;
 
-    if (RealWorker.__ejs_worker_fix_installed) return;
+    function makeBootstrapWorkerUrl(originalBlobUrl) {
+      // Important: make the worker source non-empty
+      // Also: preserve original blob script if it actually contains logic
+      // We import the original blob first, then emulator.js.
+      var boot =
+        'try{importScripts("' + String(originalBlobUrl).replace(/"/g, '\\"') + '");}catch(e){}' +
+        'try{importScripts("' + String(emuMainNoQuery).replace(/"/g, '\\"') + '");}catch(e){}';
 
-    function stripForEmptyCheck(src) {
-      try {
-        if (!isString(src)) return '';
-        // remove BOM
-        src = src.replace(/^\uFEFF/, '');
-        // remove block comments
-        src = src.replace(/\/\*[\s\S]*?\*\//g, '');
-        // remove line comments
-        src = src.replace(/\/\/[^\n\r]*/g, '');
-        // remove whitespace and semicolons
-        src = src.replace(/[\s;]+/g, '');
-        return src;
-      } catch (e) {
-        return '';
-      }
-    }
-
-    function syncGetText(url) {
-      // Returns { ok:bool, status:number, text:string }
-      var out = { ok: false, status: 0, text: '' };
-      try {
-        var xhr = new XMLHttpRequest();
-        xhr.open('GET', url, false);
-        xhr.send(null);
-        out.status = xhr.status || 0;
-        out.ok = (out.status >= 200 && out.status < 300) || out.status === 0; // blob: often reports 0
-        out.text = xhr.responseText || '';
-        return out;
-      } catch (e) {
-        return out;
-      }
-    }
-
-    function makeBootstrapUrl() {
-      try {
-        var boot =
-          'try{importScripts("' + emuMainNoQuery + '");}catch(e){}';
-        var blob = new Blob([boot], { type: 'text/javascript' });
-        return URLObj.createObjectURL(blob);
-      } catch (e) {
-        return null;
-      }
+      var blob = new Blob([boot], { type: 'text/javascript' });
+      return URLObj.createObjectURL(blob);
     }
 
     function WrappedWorker(url, opts) {
@@ -279,25 +223,11 @@
 
       try {
         if (isString(shown) && shown.indexOf('blob:') === 0) {
-          var probe = syncGetText(shown);
-
-          var trimmed = stripForEmptyCheck(probe.text);
-          var isEffectivelyEmpty = !trimmed || trimmed.length === 0;
-
-          if (DIAG) {
-            dlog('Worker(blob) probe:', {
-              status: probe.status,
-              bytes: (probe.text ? probe.text.length : 0),
-              decidedEmpty: isEffectivelyEmpty,
-              emuMain: emuMainNoQuery
-            });
-          }
-
-          if (isEffectivelyEmpty) {
-            dwarn('Empty Worker source detected. Replacing Worker script with emulator.js bootstrap.', shown);
-            var bootUrl = makeBootstrapUrl();
-            if (bootUrl) return new RealWorker(bootUrl, opts);
-          }
+          // Always replace blob workers with a guaranteed non-empty bootstrap.
+          // This stops the Firefox empty-source warning and keeps EmulatorJS logic.
+          var bootUrl = makeBootstrapWorkerUrl(shown);
+          dwarn('Worker(blob) replaced with bootstrap (prevents empty-source warning).', { original: shown, bootstrap: bootUrl });
+          return new RealWorker(bootUrl, opts);
         }
       } catch (e) {
         derror('Worker wrapper error:', e);
@@ -314,23 +244,23 @@
   }
 
   async function start() {
-    // Normalize path early
     if (!defined(window.EJS_pathtodata) || !isString(window.EJS_pathtodata) || !window.EJS_pathtodata.length) {
       window.EJS_pathtodata = './';
     }
+
     window.EJS_pathtodata = normalizeBasePath(window.EJS_pathtodata);
     safeLog('Path to data is set to ' + window.EJS_pathtodata);
     dlog('Normalized EJS_pathtodata:', window.EJS_pathtodata);
 
     assertRequiredGlobals();
 
-    // Base URLs
     var emuMainNoQuery = window.EJS_pathtodata + 'emulator.js';
+    var emuUrl = emuMainNoQuery + '?v=0.4.23';
 
-    // Install Worker fix before emulator.js loads and before the start button triggers core startup
-    installWorkerEmptySourceFix(emuMainNoQuery);
+    // Install Worker fix before emulator.js runs
+    installWorkerFix(emuMainNoQuery);
 
-    // Emscripten Module hints must be set BEFORE emulator.js runs
+    // Emscripten Module hints set before emulator.js
     try {
       window.Module = window.Module || {};
 
@@ -340,11 +270,11 @@
 
       window.Module.mainScriptUrlOrBlob = emuMainNoQuery;
 
-      // discourage pthreads
+      // discourage pools
       window.Module.PTHREAD_POOL_SIZE = 0;
       window.Module.pthreadPoolSize = 0;
 
-      // some builds read these
+      // some builds look for these
       window.Module.pthreadMainRuntimeThreadScript = emuMainNoQuery;
       window.Module.pthreadWorkerUrl = emuMainNoQuery;
       window.Module.pthreadWorkerFile = emuMainNoQuery;
@@ -356,9 +286,6 @@
     } catch (e) {
       derror('Failed to configure Module hints:', e);
     }
-
-    // Cache bust so you do not get stuck on old emulator.js
-    var emuUrl = emuMainNoQuery + '?v=0.4.23&cb=' + Date.now();
 
     // Load emulator.js
     try {
@@ -389,17 +316,15 @@
     dlog('Picked constructor:', ctor && ctor.name ? ctor.name : '(anonymous)');
 
     var cfg = buildCfg();
-
     if (cfg && cfg.biosUrl) cfg.biosUrl = absolutizeMaybe(cfg.biosUrl);
 
-    // Force thread flags off in final cfg too
+    // Force off again
     cfg.threads = false;
     cfg.pthreads = false;
     cfg.threading = false;
 
     dlog('Final cfg:', cfg);
 
-    // Create emulator instance
     var inst = new ctor(window.EJS_player, cfg);
     window.EJS_emulator = inst;
 
