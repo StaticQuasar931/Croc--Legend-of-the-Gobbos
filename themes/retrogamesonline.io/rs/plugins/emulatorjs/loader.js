@@ -1,4 +1,4 @@
-(function () {
+﻿(function () {
   "use strict";
 
   // =================================================
@@ -179,10 +179,98 @@
     }
   }
 
+  function isLikelyJsMime(type) {
+    var t = String(type || "").toLowerCase();
+    return (t.indexOf("javascript") !== -1) || (t.indexOf("ecmascript") !== -1) || (t.indexOf("text/plain") !== -1);
+  }
+
+  function isEffectivelyEmptyJs(source) {
+    if (!isString(source)) return false;
+    var s = source.replace(/^\uFEFF/, "");
+    s = s.replace(/\/\*[\s\S]*?\*\//g, "");
+    s = s.replace(/(^|[\r\n])\s*\/\/[^\r\n]*/g, "$1");
+    s = s.replace(/\s+/g, "");
+    return s.length === 0;
+  }
+
+  function makeExecutableWorkerStub(importUrl) {
+    var target = isString(importUrl) ? importUrl : "";
+    return [
+      "self.__ejsWorkerBootstrap = 1;",
+      "try {",
+      "  if (typeof importScripts === 'function' && " + JSON.stringify(target) + ") {",
+      "    importScripts(" + JSON.stringify(target) + ");",
+      "  }",
+      "} catch (e) {",
+      "  setTimeout(function () { throw e; }, 0);",
+      "}"
+    ].join("\n");
+  }
+
+  function tryTagBlobSourceText(blob, parts, options) {
+    try {
+      if (!blob) return;
+      var type = "";
+      if (options && isString(options.type)) type = options.type;
+      if (!type && isString(blob.type)) type = blob.type;
+      if (!isLikelyJsMime(type)) return;
+      if (!parts || typeof parts.length !== "number") return;
+
+      var out = "";
+      var td = (typeof TextDecoder !== "undefined") ? new TextDecoder("utf-8") : null;
+
+      for (var i = 0; i < parts.length; i++) {
+        var part = parts[i];
+        if (typeof part === "string") {
+          out += part;
+        } else if (typeof part === "number" || typeof part === "boolean") {
+          out += String(part);
+        } else if (typeof ArrayBuffer !== "undefined" && part instanceof ArrayBuffer) {
+          if (!td) return;
+          out += td.decode(new Uint8Array(part));
+        } else if (typeof ArrayBuffer !== "undefined" && ArrayBuffer.isView && ArrayBuffer.isView(part)) {
+          if (!td) return;
+          out += td.decode(new Uint8Array(part.buffer, part.byteOffset, part.byteLength));
+        } else {
+          return;
+        }
+
+        if (out.length > 262144) return;
+      }
+
+      Object.defineProperty(blob, "__ejs_source_text", {
+        configurable: true,
+        enumerable: false,
+        writable: false,
+        value: out
+      });
+    } catch (e) {}
+  }
+
+  function installBlobSourceTagger() {
+    if (typeof window.Blob !== "function" || window.Blob.__ejs_blob_wrapped) return;
+    var RealBlob = window.Blob;
+
+    function WrappedBlob(parts, options) {
+      var actualParts = (typeof parts === "undefined") ? [] : parts;
+      var b = new RealBlob(actualParts, options);
+      tryTagBlobSourceText(b, actualParts, options || {});
+      return b;
+    }
+
+    WrappedBlob.prototype = RealBlob.prototype;
+    try { Object.setPrototypeOf(WrappedBlob, RealBlob); } catch (e) {}
+    WrappedBlob.__ejs_blob_wrapped = true;
+    RealBlob.__ejs_blob_wrapped = true;
+    window.Blob = WrappedBlob;
+
+    dlog("Installed Blob source tagger for JS worker blob inspection");
+  }
+
   // -------------------------------------------------
-  // 1) createObjectURL fix: 0-byte JS blobs become non-empty
+  // 1) createObjectURL fix: replace effectively-empty JS workers
   // -------------------------------------------------
-  function installCreateObjectUrlFix() {
+  function installCreateObjectUrlFix(emuMainNoQuery) {
     var URLObj = window.URL || window.webkitURL;
     if (!URLObj || !URLObj.createObjectURL || URLObj.__ejs_createObjectURL_fixed) return;
 
@@ -192,11 +280,19 @@
       try {
         var isBlob = (typeof Blob !== "undefined") && (obj instanceof Blob);
         if (isBlob) {
-          var t = String(obj.type || "").toLowerCase();
-          var isJS = (t.indexOf("javascript") !== -1) || (t.indexOf("ecmascript") !== -1) || (t.indexOf("text/plain") !== -1);
-          if (isJS && obj.size === 0) {
-            var fixed = new Blob(["/* ejs non-empty stub */"], { type: "text/javascript" });
-            return real(fixed);
+          var isJS = isLikelyJsMime(obj.type || "");
+          if (isJS) {
+            var src = "";
+            try {
+              if (isString(obj.__ejs_source_text)) src = obj.__ejs_source_text;
+            } catch (e) {}
+
+            var effectivelyEmpty = (obj.size === 0) || (src && isEffectivelyEmptyJs(src));
+            if (effectivelyEmpty) {
+              var fixedSrc = makeExecutableWorkerStub(emuMainNoQuery);
+              var fixed = new Blob([fixedSrc], { type: "text/javascript" });
+              return real(fixed);
+            }
           }
         }
       } catch (e) {}
@@ -204,7 +300,7 @@
     };
 
     URLObj.__ejs_createObjectURL_fixed = true;
-    dlog("Installed URL.createObjectURL 0-byte JS blob fix");
+    dlog("Installed URL.createObjectURL effective-empty JS worker fix");
   }
 
   // -------------------------------------------------
@@ -269,62 +365,94 @@
   function makeWorkerBootstrap(emuMainNoQuery) {
     return [
       "(function(){",
-      "  try{",
-      "    var DIAG=true;",
-      "    function log(){try{if(DIAG && self.console && self.console.log) self.console.log.apply(self.console, arguments);}catch(e){}}",
-      "    function warn(){try{if(DIAG && self.console && self.console.warn) self.console.warn.apply(self.console, arguments);}catch(e){}}",
+      "  var EMU_MAIN = " + JSON.stringify(emuMainNoQuery) + ";",
+      "  function isString(v){ return typeof v === 'string'; }",
+      "  function isLikelyJsMime(t){ t=String(t||'').toLowerCase(); return t.indexOf('javascript')!==-1 || t.indexOf('ecmascript')!==-1 || t.indexOf('text/plain')!==-1; }",
+      "  function isEffectivelyEmptyJs(source){",
+      "    if(!isString(source)) return false;",
+      "    var s = source.replace(/^\\uFEFF/, '');",
+      "    s = s.replace(/\\/\\*[\\s\\S]*?\\*\\//g, '');",
+      "    s = s.replace(/(^|[\\r\\n])\\s*\\/\\/[^\\r\\n]*/g, '$1');",
+      "    s = s.replace(/\\s+/g, '');",
+      "    return s.length === 0;",
+      "  }",
+      "  function makeStub(target){",
+      "    target = isString(target) ? target : '';",
+      "    return [",
+      "      'self.__ejsWorkerBootstrap = 1;',",
+      "      'try {',",
+      "      '  if (typeof importScripts === \'function\' && ' + JSON.stringify(target) + ') {',",
+      "      '    importScripts(' + JSON.stringify(target) + ');',",
+      "      '  }',",
+      "      '} catch (e) {',",
+      "      '  setTimeout(function(){ throw e; }, 0);',",
+      "      '}'",
+      "    ].join('\\n');",
+      "  }",
       "",
+      "  try{",
       "    var URLObj = self.URL || self.webkitURL;",
+      "    var RealBlob = self.Blob;",
+      "",
+      "    if(typeof RealBlob === 'function' && !RealBlob.__ejs_blob_wrapped){",
+      "      self.Blob = function(parts, options){",
+      "        var actualParts = (typeof parts === 'undefined') ? [] : parts;",
+      "        var b = new RealBlob(actualParts, options);",
+      "        try{",
+      "          var type = (options && options.type) ? options.type : b.type;",
+      "          if(isLikelyJsMime(type) && actualParts && typeof actualParts.length==='number'){",
+      "            var out = '';",
+      "            var td = (typeof TextDecoder !== 'undefined') ? new TextDecoder('utf-8') : null;",
+      "            for(var i=0;i<actualParts.length;i++){",
+      "              var p = actualParts[i];",
+      "              if(typeof p === 'string'){ out += p; }",
+      "              else if(typeof p === 'number' || typeof p === 'boolean'){ out += String(p); }",
+      "              else if(typeof ArrayBuffer !== 'undefined' && p instanceof ArrayBuffer){ if(!td){ out=''; break; } out += td.decode(new Uint8Array(p)); }",
+      "              else if(typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView && ArrayBuffer.isView(p)){ if(!td){ out=''; break; } out += td.decode(new Uint8Array(p.buffer, p.byteOffset, p.byteLength)); }",
+      "              else { out=''; break; }",
+      "              if(out.length > 262144){ out=''; break; }",
+      "            }",
+      "            if(out){ Object.defineProperty(b, '__ejs_source_text', { value: out, configurable: true, enumerable: false }); }",
+      "          }",
+      "        }catch(e){}",
+      "        return b;",
+      "      };",
+      "      self.Blob.prototype = RealBlob.prototype;",
+      "      try{ Object.setPrototypeOf(self.Blob, RealBlob); }catch(e){}",
+      "      self.Blob.__ejs_blob_wrapped = true;",
+      "      RealBlob.__ejs_blob_wrapped = true;",
+      "    }",
+      "",
       "    if(URLObj && URLObj.createObjectURL && !URLObj.__ejs_createObjectURL_fixed){",
       "      var realCOU = URLObj.createObjectURL.bind(URLObj);",
       "      URLObj.createObjectURL = function(obj){",
       "        try{",
-      "          var isBlob = (typeof Blob!=='undefined') && (obj instanceof Blob);",
-      "          if(isBlob){",
-      "            var t = String(obj.type||'').toLowerCase();",
-      "            var isJS = (t.indexOf('javascript')!==-1)||(t.indexOf('ecmascript')!==-1)||(t.indexOf('text/plain')!==-1);",
-      "            if(isJS && obj.size===0){",
-      "              var fixed = new Blob(['/* ejs non-empty stub */'], {type:'text/javascript'});",
-      "              return realCOU(fixed);",
+      "          var isBlob = (typeof self.Blob!=='undefined') && (obj instanceof self.Blob);",
+      "          if(isBlob && isLikelyJsMime(obj.type||'')){",
+      "            var src = '';",
+      "            try{ if(isString(obj.__ejs_source_text)) src = obj.__ejs_source_text; }catch(e){}",
+      "            if(obj.size===0 || (src && isEffectivelyEmptyJs(src))){",
+      "              return realCOU(new self.Blob([makeStub(EMU_MAIN)], {type:'text/javascript'}));",
       "            }",
       "          }",
       "        }catch(e){}",
       "        return realCOU(obj);",
       "      };",
-      "      URLObj.__ejs_createObjectURL_fixed=true;",
-      "      log('[EJS-DIAG] worker: installed createObjectURL 0-byte fix');",
+      "      URLObj.__ejs_createObjectURL_fixed = true;",
       "    }",
       "",
-      "    // Protect nested worker blob URLs from early revoke",
       "    if(URLObj && URLObj.revokeObjectURL && !URLObj.__ejs_revoke_protect_installed){",
       "      var realRev = URLObj.revokeObjectURL.bind(URLObj);",
       "      var protectUntil = new Map();",
-      "      function protect(u, ms){",
-      "        try{",
-      "          if(typeof u!=='string' || u.indexOf('blob:')!==0) return;",
-      "          protectUntil.set(u, Date.now() + (ms||30000));",
-      "        }catch(e){}",
-      "      }",
-      "      function isProt(u){",
-      "        try{",
-      "          var t = protectUntil.get(u);",
-      "          if(!t) return false;",
-      "          if(Date.now()>t){ protectUntil.delete(u); return false; }",
-      "          return true;",
-      "        }catch(e){ return false; }",
-      "      }",
+      "      function protect(u, ms){ try{ if(typeof u==='string' && u.indexOf('blob:')===0) protectUntil.set(u, Date.now() + (ms||30000)); }catch(e){} }",
+      "      function isProt(u){ try{ var t=protectUntil.get(u); if(!t) return false; if(Date.now()>t){ protectUntil.delete(u); return false; } return true; }catch(e){ return false; } }",
       "      self.__ejsProtectBlobUrl = protect;",
       "      URLObj.revokeObjectURL = function(u){",
       "        try{ u = String(u||''); }catch(e){ u=''; }",
-      "        if(isProt(u)){",
-      "          warn('[EJS-DIAG] worker: delayed revokeObjectURL for protected blob', u);",
-      "          setTimeout(function(){ try{ realRev(u); }catch(e){} }, 35000);",
-      "          return;",
-      "        }",
+      "        if(isProt(u)){ setTimeout(function(){ try{ realRev(u); }catch(e){} }, 35000); return; }",
       "        return realRev(u);",
       "      };",
       "      URLObj.__ejs_revoke_protect_installed = true;",
-      "      log('[EJS-DIAG] worker: installed revokeObjectURL protection');",
       "    }",
       "",
       "    var RealWorker = self.Worker;",
@@ -332,24 +460,27 @@
       "      self.Worker = function(url, opts){",
       "        try{",
       "          var u = String(url||'');",
-      "          if(self.__ejsProtectBlobUrl && u.indexOf('blob:')===0) self.__ejsProtectBlobUrl(u, 30000);",
-      "          if(u===''){",
-      "            warn('[EJS-DIAG] worker: blocked empty-string Worker, replacing with stub');",
-      "            var b = new Blob(['/* ejs worker stub */'], {type:'text/javascript'});",
-      "            var bu = (self.URL||self.webkitURL).createObjectURL(b);",
-      "            if(self.__ejsProtectBlobUrl) self.__ejsProtectBlobUrl(bu, 30000);",
-      "            return new RealWorker(bu, opts);",
+      "          var isModule = !!(opts && opts.type === 'module');",
+      "          if(!u || u==='undefined' || u==='null'){",
+      "            var stubUrl = (self.URL||self.webkitURL).createObjectURL(new self.Blob([makeStub(EMU_MAIN)], {type:'text/javascript'}));",
+      "            if(self.__ejsProtectBlobUrl) self.__ejsProtectBlobUrl(stubUrl, 30000);",
+      "            return new RealWorker(stubUrl, opts);",
+      "          }",
+      "          if(!isModule && u.indexOf('blob:')===0){",
+      "            if(self.__ejsProtectBlobUrl) self.__ejsProtectBlobUrl(u, 30000);",
+      "            var tramp = (self.URL||self.webkitURL).createObjectURL(new self.Blob([makeStub(u)], {type:'text/javascript'}));",
+      "            if(self.__ejsProtectBlobUrl) self.__ejsProtectBlobUrl(tramp, 30000);",
+      "            return new RealWorker(tramp, opts);",
       "          }",
       "        }catch(e){}",
       "        return new RealWorker(url, opts);",
       "      };",
-      "      self.Worker.__ejs_nested_fixed=true;",
-      "      RealWorker.__ejs_nested_fixed=true;",
-      "      log('[EJS-DIAG] worker: installed nested Worker fix');",
+      "      self.Worker.__ejs_nested_fixed = true;",
+      "      RealWorker.__ejs_nested_fixed = true;",
       "    }",
       "  }catch(e){}",
       "",
-      "  try{ importScripts(" + JSON.stringify(emuMainNoQuery) + "); }catch(e){}",
+      "  try{ if(typeof importScripts === 'function') importScripts(EMU_MAIN); }catch(e){ setTimeout(function(){ throw e; }, 0); }",
       "})();"
     ].join("\n");
   }
@@ -378,6 +509,18 @@
       }
     }
 
+    function makeImportWorkerUrl(targetUrl) {
+      try {
+        var src = makeExecutableWorkerStub(targetUrl);
+        var blob = new Blob([src], { type: "text/javascript" });
+        var url = URLObj.createObjectURL(blob);
+        if (window.__ejsProtectBlobUrl) window.__ejsProtectBlobUrl(url, 30000);
+        return url;
+      } catch (e) {
+        return null;
+      }
+    }
+
     function WrappedWorker(url, opts) {
       var shown = "";
       try { shown = String(url); } catch (e) { shown = "[unstringable]"; }
@@ -385,17 +528,24 @@
       if (DIAG) dlog("Worker() called with:", { type: (typeof url), url: shown });
 
       try {
-        // If emulator creates a blob worker, protect it from early revoke
+        var isModule = !!(opts && opts.type === "module");
+
         if (isString(shown) && shown.indexOf("blob:") === 0 && window.__ejsProtectBlobUrl) {
           window.__ejsProtectBlobUrl(shown, 30000);
         }
 
-        // Empty string Worker is always bad
         if (!shown || shown === "undefined" || shown === "null" || shown === "") {
           var bootA = makeBootstrapUrl();
           if (bootA) {
             dwarn("Worker(empty) replaced with bootstrap", { bootstrap: bootA });
             return new RealWorker(bootA, opts);
+          }
+        }
+
+        if (!isModule && isString(shown) && shown.indexOf("blob:") === 0) {
+          var wrapped = makeImportWorkerUrl(shown);
+          if (wrapped) {
+            return new RealWorker(wrapped, opts);
           }
         }
       } catch (e) {
@@ -409,7 +559,7 @@
     window.Worker = WrappedWorker;
     RealWorker.__ejs_worker_fix_installed = true;
 
-    dlog("Installed Worker() wrapper (revoke-race fix + nested-worker bootstrap)");
+    dlog("Installed Worker() wrapper (revoke-race + executable bootstrap + nested-worker safety)");
   }
 
   async function start() {
@@ -426,7 +576,8 @@
     var emuMainNoQuery = window.EJS_pathtodata + "emulator.js";
 
     // Install fixes BEFORE emulator.js loads and BEFORE start button triggers workers
-    installCreateObjectUrlFix();
+    installBlobSourceTagger();
+    installCreateObjectUrlFix(emuMainNoQuery);
     installRevokeProtection();
     installWorkerFix(emuMainNoQuery);
 
