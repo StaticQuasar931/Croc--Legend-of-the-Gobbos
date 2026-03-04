@@ -380,7 +380,7 @@
     function loadLoaderJs() {
       return new Promise((resolve, reject) => {
         const s = document.createElement("script");
-        s.src = "./themes/retrogamesonline.io/rs/plugins/emulatorjs/loader.js";
+        s.src = "./themes/retrogamesonline.io/rs/plugins/emulatorjs/loader.js?cb=" + Date.now();
         s.onload = resolve;
         s.onerror = () => reject(new Error("Failed to load loader.js"));
         document.body.appendChild(s);
@@ -554,3 +554,4 @@
   </div>
 </body>
 </html>
+
