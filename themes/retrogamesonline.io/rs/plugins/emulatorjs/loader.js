@@ -2,25 +2,18 @@
   "use strict";
 
   // =================================================
-  // EmulatorJS loader.js (page + nested-worker safe fix)
+  // EmulatorJS loader.js (Firefox worker revoke race fix)
   // Path: /themes/retrogamesonline.io/rs/plugins/emulatorjs/loader.js
   //
-  // Goal:
-  // - Fix Firefox "Attempting to create a Worker from an empty source"
-  // - The warning is typically triggered by a nested Worker created inside the main emulator Worker.
-  // - We patch BOTH the page context and the worker context.
+  // Primary fix:
+  // - Firefox can show "Attempting to create a Worker from an empty source"
+  //   when a blob: worker URL is revoked too quickly after Worker() starts.
+  // - We wrap URL.revokeObjectURL to DELAY revokes for blob URLs recently used by Worker().
+  // - We also apply the same protection inside the worker for nested workers.
   //
-  // What this does:
-  // 1) Normalizes EJS_pathtodata to an absolute URL with trailing slash
-  // 2) Sets Module hints before emulator.js loads
-  // 3) Installs:
-  //    - URL.createObjectURL: replace 0-byte JS blobs with a non-empty stub
-  //    - Worker: if given a blob: URL that is empty, replace with a bootstrap Worker
-  //             that installs the same fixes inside the Worker, then importScripts(emulator.js)
-  //
-  // IMPORTANT:
-  // - This does NOT “enable threads”. Threads stay disabled.
-  // - This targets only “empty JS worker scripts” so normal workers remain untouched.
+  // Secondary safety:
+  // - createObjectURL: replace 0-byte JS blobs with a non-empty stub
+  // - Worker("") safety: replace empty-string worker URLs with a stub
   // =================================================
 
   var DIAG = true;
@@ -187,9 +180,7 @@
   }
 
   // -------------------------------------------------
-  // Page-level createObjectURL fix:
-  // If a JS blob is size 0, replace it with a non-empty stub.
-  // This protects both page workers and any “blank worker” blobs.
+  // 1) createObjectURL fix: 0-byte JS blobs become non-empty
   // -------------------------------------------------
   function installCreateObjectUrlFix() {
     var URLObj = window.URL || window.webkitURL;
@@ -217,20 +208,72 @@
   }
 
   // -------------------------------------------------
-  // Worker bootstrap that also patches INSIDE the worker,
-  // then importScripts(emulator.js).
-  // This is the part that fixes your “still happens after start” issue.
+  // 2) revokeObjectURL fix: delay revokes for worker-used blob URLs
+  // -------------------------------------------------
+  function installRevokeProtection() {
+    var URLObj = window.URL || window.webkitURL;
+    if (!URLObj || !URLObj.revokeObjectURL || URLObj.__ejs_revoke_protect_installed) return;
+
+    var realRevoke = URLObj.revokeObjectURL.bind(URLObj);
+
+    // blobUrl -> expireTime (ms)
+    var protectUntil = new Map();
+
+    function protect(url, ms) {
+      try {
+        if (!isString(url) || url.indexOf("blob:") !== 0) return;
+        var until = Date.now() + (ms || 30000);
+        protectUntil.set(url, until);
+      } catch (e) {}
+    }
+
+    function isProtected(url) {
+      try {
+        var u = protectUntil.get(url);
+        if (!u) return false;
+        if (Date.now() > u) { protectUntil.delete(url); return false; }
+        return true;
+      } catch (e) {
+        return false;
+      }
+    }
+
+    // Expose for Worker wrapper
+    window.__ejsProtectBlobUrl = protect;
+
+    URLObj.revokeObjectURL = function (url) {
+      var u = "";
+      try { u = String(url); } catch (e) { u = ""; }
+
+      // If EmulatorJS revokes immediately, Firefox worker fetch can see "empty source".
+      if (isProtected(u)) {
+        if (DIAG) dwarn("Delayed revokeObjectURL for protected worker blob:", u);
+        setTimeout(function () { try { realRevoke(u); } catch (e) {} }, 35000);
+        return;
+      }
+
+      return realRevoke(url);
+    };
+
+    URLObj.__ejs_revoke_protect_installed = true;
+    dlog("Installed URL.revokeObjectURL protection (delays worker blob revokes)");
+  }
+
+  // -------------------------------------------------
+  // Worker bootstrap that patches INSIDE the worker:
+  // - createObjectURL 0-byte JS fix
+  // - revokeObjectURL protection for nested worker blobs
+  // - Worker("") guard
+  // then importScripts(emulator.js)
   // -------------------------------------------------
   function makeWorkerBootstrap(emuMainNoQuery) {
-    // Keep this string simple and standalone.
-    // It runs in Worker global scope.
     return [
       "(function(){",
       "  try{",
       "    var DIAG=true;",
-      "    function log(){try{if(DIAG) self.console && self.console.log && self.console.log.apply(self.console, arguments);}catch(e){}}",
-      "    function warn(){try{if(DIAG) self.console && self.console.warn && self.console.warn.apply(self.console, arguments);}catch(e){}}",
-
+      "    function log(){try{if(DIAG && self.console && self.console.log) self.console.log.apply(self.console, arguments);}catch(e){}}",
+      "    function warn(){try{if(DIAG && self.console && self.console.warn) self.console.warn.apply(self.console, arguments);}catch(e){}}",
+      "",
       "    var URLObj = self.URL || self.webkitURL;",
       "    if(URLObj && URLObj.createObjectURL && !URLObj.__ejs_createObjectURL_fixed){",
       "      var realCOU = URLObj.createObjectURL.bind(URLObj);",
@@ -251,16 +294,50 @@
       "      URLObj.__ejs_createObjectURL_fixed=true;",
       "      log('[EJS-DIAG] worker: installed createObjectURL 0-byte fix');",
       "    }",
-
+      "",
+      "    // Protect nested worker blob URLs from early revoke",
+      "    if(URLObj && URLObj.revokeObjectURL && !URLObj.__ejs_revoke_protect_installed){",
+      "      var realRev = URLObj.revokeObjectURL.bind(URLObj);",
+      "      var protectUntil = new Map();",
+      "      function protect(u, ms){",
+      "        try{",
+      "          if(typeof u!=='string' || u.indexOf('blob:')!==0) return;",
+      "          protectUntil.set(u, Date.now() + (ms||30000));",
+      "        }catch(e){}",
+      "      }",
+      "      function isProt(u){",
+      "        try{",
+      "          var t = protectUntil.get(u);",
+      "          if(!t) return false;",
+      "          if(Date.now()>t){ protectUntil.delete(u); return false; }",
+      "          return true;",
+      "        }catch(e){ return false; }",
+      "      }",
+      "      self.__ejsProtectBlobUrl = protect;",
+      "      URLObj.revokeObjectURL = function(u){",
+      "        try{ u = String(u||''); }catch(e){ u=''; }",
+      "        if(isProt(u)){",
+      "          warn('[EJS-DIAG] worker: delayed revokeObjectURL for protected blob', u);",
+      "          setTimeout(function(){ try{ realRev(u); }catch(e){} }, 35000);",
+      "          return;",
+      "        }",
+      "        return realRev(u);",
+      "      };",
+      "      URLObj.__ejs_revoke_protect_installed = true;",
+      "      log('[EJS-DIAG] worker: installed revokeObjectURL protection');",
+      "    }",
+      "",
       "    var RealWorker = self.Worker;",
       "    if(RealWorker && !RealWorker.__ejs_nested_fixed){",
       "      self.Worker = function(url, opts){",
       "        try{",
       "          var u = String(url||'');",
+      "          if(self.__ejsProtectBlobUrl && u.indexOf('blob:')===0) self.__ejsProtectBlobUrl(u, 30000);",
       "          if(u===''){",
       "            warn('[EJS-DIAG] worker: blocked empty-string Worker, replacing with stub');",
       "            var b = new Blob(['/* ejs worker stub */'], {type:'text/javascript'});",
       "            var bu = (self.URL||self.webkitURL).createObjectURL(b);",
+      "            if(self.__ejsProtectBlobUrl) self.__ejsProtectBlobUrl(bu, 30000);",
       "            return new RealWorker(bu, opts);",
       "          }",
       "        }catch(e){}",
@@ -270,56 +347,32 @@
       "      RealWorker.__ejs_nested_fixed=true;",
       "      log('[EJS-DIAG] worker: installed nested Worker fix');",
       "    }",
-      "  }catch(e){}", // do not hard-fail worker bootstrap
-
+      "  }catch(e){}",
+      "",
       "  try{ importScripts(" + JSON.stringify(emuMainNoQuery) + "); }catch(e){}",
       "})();"
     ].join("\n");
   }
 
   // -------------------------------------------------
-  // Page-level Worker wrapper:
-  // If Worker gets blob: or empty string, ensure it is not empty.
-  // If blob: is empty, replace with bootstrap that patches inside worker.
+  // 3) Page-level Worker wrapper:
+  // - mark blob URLs as protected (prevents early revoke)
+  // - guard empty-string worker URLs
+  // - for blob: worker URLs, do not try to probe with sync XHR (avoid that warning)
+  //   we fix the actual root cause: revocation timing
   // -------------------------------------------------
   function installWorkerFix(emuMainNoQuery) {
     var URLObj = window.URL || window.webkitURL;
     var RealWorker = window.Worker;
     if (!RealWorker || RealWorker.__ejs_worker_fix_installed) return;
 
-    function stripForEmptyCheck(src) {
-      try {
-        if (!isString(src)) return "";
-        src = src.replace(/^\uFEFF/, "");
-        src = src.replace(/\/\*[\s\S]*?\*\//g, "");
-        src = src.replace(/\/\/[^\n\r]*/g, "");
-        src = src.replace(/[\s;]+/g, "");
-        return src;
-      } catch (e) {
-        return "";
-      }
-    }
-
-    function syncGetText(url) {
-      var out = { ok: false, status: 0, text: "" };
-      try {
-        var xhr = new XMLHttpRequest();
-        xhr.open("GET", url, false);
-        xhr.send(null);
-        out.status = xhr.status || 0;
-        out.ok = (out.status >= 200 && out.status < 300) || out.status === 0;
-        out.text = xhr.responseText || "";
-        return out;
-      } catch (e) {
-        return out;
-      }
-    }
-
     function makeBootstrapUrl() {
       try {
         var bootSrc = makeWorkerBootstrap(emuMainNoQuery);
         var bootBlob = new Blob([bootSrc], { type: "text/javascript" });
-        return URLObj.createObjectURL(bootBlob);
+        var bootUrl = URLObj.createObjectURL(bootBlob);
+        if (window.__ejsProtectBlobUrl) window.__ejsProtectBlobUrl(bootUrl, 30000);
+        return bootUrl;
       } catch (e) {
         return null;
       }
@@ -332,35 +385,17 @@
       if (DIAG) dlog("Worker() called with:", { type: (typeof url), url: shown });
 
       try {
-        // Empty string Worker is always bad
-        if (!shown || shown === "undefined" || shown === "null" || shown === "") {
-          var bootUrlA = makeBootstrapUrl();
-          if (bootUrlA) {
-            dwarn("Worker(empty) replaced with bootstrap");
-            return new RealWorker(bootUrlA, opts);
-          }
+        // If emulator creates a blob worker, protect it from early revoke
+        if (isString(shown) && shown.indexOf("blob:") === 0 && window.__ejsProtectBlobUrl) {
+          window.__ejsProtectBlobUrl(shown, 30000);
         }
 
-        // blob: worker source probe
-        if (isString(shown) && shown.indexOf("blob:") === 0) {
-          var probe = syncGetText(shown);
-          var trimmed = stripForEmptyCheck(probe.text);
-          var isEffectivelyEmpty = !trimmed || trimmed.length === 0;
-
-          if (DIAG) {
-            dlog("Worker(blob) probe:", {
-              status: probe.status,
-              bytes: (probe.text ? probe.text.length : 0),
-              decidedEmpty: isEffectivelyEmpty
-            });
-          }
-
-          if (isEffectivelyEmpty) {
-            var bootUrlB = makeBootstrapUrl();
-            if (bootUrlB) {
-              dwarn("Worker(blob/empty) replaced with bootstrap", { original: shown, bootstrap: bootUrlB });
-              return new RealWorker(bootUrlB, opts);
-            }
+        // Empty string Worker is always bad
+        if (!shown || shown === "undefined" || shown === "null" || shown === "") {
+          var bootA = makeBootstrapUrl();
+          if (bootA) {
+            dwarn("Worker(empty) replaced with bootstrap", { bootstrap: bootA });
+            return new RealWorker(bootA, opts);
           }
         }
       } catch (e) {
@@ -374,11 +409,10 @@
     window.Worker = WrappedWorker;
     RealWorker.__ejs_worker_fix_installed = true;
 
-    dlog("Installed Worker() wrapper (page + nested-worker fix)");
+    dlog("Installed Worker() wrapper (revoke-race fix + nested-worker bootstrap)");
   }
 
   async function start() {
-    // Normalize EJS_pathtodata
     if (!defined(window.EJS_pathtodata) || !isString(window.EJS_pathtodata) || !window.EJS_pathtodata.length) {
       window.EJS_pathtodata = "./";
     }
@@ -389,11 +423,11 @@
 
     assertRequiredGlobals();
 
-    // Base emulator script URL (no query)
     var emuMainNoQuery = window.EJS_pathtodata + "emulator.js";
 
-    // Install fixes before emulator.js loads and before start button triggers workers
+    // Install fixes BEFORE emulator.js loads and BEFORE start button triggers workers
     installCreateObjectUrlFix();
+    installRevokeProtection();
     installWorkerFix(emuMainNoQuery);
 
     // Emscripten Module hints (must be set before emulator.js)
@@ -422,7 +456,7 @@
       derror("Failed to configure Module hints:", e);
     }
 
-    // Load emulator.js with cache bust to avoid stale files
+    // Cache bust to avoid stale emulator.js
     var emuUrl = emuMainNoQuery + "?v=0.4.23&cb=" + Date.now();
 
     try {
@@ -434,9 +468,9 @@
       throw new Error("emulator.js failed to load: " + emuUrl);
     }
 
-    // Wait for constructor to appear
+    // Wait for constructor
     var ctor = null;
-    for (var i = 0; i < 140; i++) {
+    for (var i = 0; i < 160; i++) {
       ctor = pickCtor();
       if (typeof ctor === "function") break;
       await new Promise(function (r) { setTimeout(r, 25); });
@@ -455,7 +489,7 @@
     var cfg = buildCfg();
     if (cfg && cfg.biosUrl) cfg.biosUrl = absolutizeMaybe(cfg.biosUrl);
 
-    // Force these off again in final cfg
+    // Force off again
     cfg.threads = false;
     cfg.pthreads = false;
     cfg.threading = false;
