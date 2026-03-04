@@ -1,15 +1,12 @@
 (function () {
   'use strict';
 
+
   // -------------------------------------------------
   // DIAGNOSTIC MODE
   // -------------------------------------------------
-  // Set to false once stable.
   var DIAG = true;
 
-  // -----------------------------
-  // Small helpers
-  // -----------------------------
   function isString(v) { return typeof v === 'string'; }
   function defined(v) { return typeof v !== 'undefined'; }
 
@@ -34,7 +31,6 @@
     return url && url.endsWith('/') ? url : (url + '/');
   }
 
-  // Helpful crash logging
   window.addEventListener('error', function (ev) {
     try {
       safeError('window.error:', ev && (ev.message || ev.type), ev && ev.filename, ev && ev.lineno, ev && ev.colno, ev && ev.error);
@@ -91,9 +87,6 @@
     })();
   };
 
-  // ----------------------------
-  // Validate required globals
-  // ----------------------------
   function assertRequiredGlobals() {
     var missing = [];
     if (!defined(window.EJS_player)) missing.push('EJS_player');
@@ -106,10 +99,8 @@
     }
   }
 
-  // Build the config object from EJS_* globals
   function buildCfg() {
     var cfg = {};
-
     cfg.gameUrl = window.EJS_gameUrl;
     cfg.system = window.EJS_core;
 
@@ -117,7 +108,7 @@
     cfg.pathToData = window.EJS_pathtodata;
     cfg.dataPath = window.EJS_pathtodata;
 
-    // Hard disable threads
+    // Hard disable threads (requested by you earlier)
     cfg.threads = false;
     cfg.pthreads = false;
     cfg.threading = false;
@@ -182,7 +173,6 @@
     });
   }
 
-  // Make sure biosUrl is absolute if it is relative.
   function absolutizeMaybe(url) {
     try {
       if (!isString(url) || !url.trim().length) return url;
@@ -193,149 +183,113 @@
     }
   }
 
-  // -------------------------------------------------
-  // Fix: "Attempting to create a Worker from an empty source."
-  // -------------------------------------------------
-  // IMPORTANT CHANGE vs last version:
-  // Your Worker blob is still ending up "empty" at runtime, but we did not catch it because:
-  // - Some builds create a non-0-byte Blob that STILL evaluates to an empty script in Firefox, or
-  // - The blob URL is created in a way we cannot observe with size metadata, or
-  // - The blob is revoked / invalid by the time Worker loads it.
-  //
-  // This version fixes it safely by:
-  // 1) Tracking createObjectURL metadata when possible
-  // 2) ALSO probing the blob URL synchronously (XHR) right before Worker is created
-  // 3) If the blob script is empty (or probe fails), we swap ONLY that worker for a bootstrap that importScripts() emulator.js
-  //
-  // This directly targets the warning you see after clicking Start Game.
-  var URLObj = window.URL || window.webkitURL;
-  var __ejs_blob_url_meta = new Map(); // blobUrl -> {size,type}
-  var __EJS_EMU_MAIN_URL = null;       // set once pathtodata is normalized
+  // =================================================
+  // CORE FIX: prevent empty JS blobs (worker scripts)
+  // =================================================
+  var __EJS_EMU_MAIN_URL = null;
+  var __EJS_BLOB_PATCHED = false;
 
-  var RealCreateObjectURL = (URLObj && URLObj.createObjectURL) ? URLObj.createObjectURL.bind(URLObj) : null;
-  var RealRevokeObjectURL = (URLObj && URLObj.revokeObjectURL) ? URLObj.revokeObjectURL.bind(URLObj) : null;
+  function isJsMime(typeStr) {
+    var t = String(typeStr || '').toLowerCase();
+    return (
+      t.indexOf('javascript') !== -1 ||
+      t.indexOf('ecmascript') !== -1 ||
+      t.indexOf('application/x-javascript') !== -1 ||
+      t.indexOf('text/plain') !== -1
+    );
+  }
 
-  if (RealCreateObjectURL && !URLObj.__ejs_blob_meta_installed) {
-    URLObj.createObjectURL = function (obj) {
-      var url = RealCreateObjectURL(obj);
-      try {
-        var isBlob = (typeof Blob !== 'undefined') && (obj instanceof Blob);
-        if (isBlob && isString(url) && url.indexOf('blob:') === 0) {
-          __ejs_blob_url_meta.set(url, {
-            size: (obj && typeof obj.size === 'number') ? obj.size : 0,
-            type: String((obj && obj.type) || '')
-          });
+  function partsToText(parts) {
+    // Best-effort: join string-ish parts only.
+    // If parts are non-strings (ArrayBuffer, etc.), we treat it as non-empty.
+    try {
+      if (!parts || !parts.length) return '';
+      var s = '';
+      for (var i = 0; i < parts.length; i++) {
+        var p = parts[i];
+        if (p === null || typeof p === 'undefined') continue;
+        if (typeof p === 'string') {
+          s += p;
+          continue;
         }
-      } catch (e) {
-        derror('createObjectURL meta wrapper error:', e);
+        // If it is not a string, we assume it's meaningful binary content
+        // and do NOT classify it as empty.
+        return '__non_string_parts__';
       }
-      return url;
-    };
-
-    if (RealRevokeObjectURL) {
-      URLObj.revokeObjectURL = function (url) {
-        try { __ejs_blob_url_meta.delete(String(url)); } catch (e) {}
-        return RealRevokeObjectURL(url);
-      };
-    }
-
-    URLObj.__ejs_blob_meta_installed = true;
-    dlog('Installed URL.createObjectURL metadata tracker');
-  }
-
-  function probeBlobWorkerSourceSync(blobUrl) {
-    // Returns { ok: boolean, length: number, status: number, error: any }
-    // If ok is true and length is 0, it is an "empty source" situation.
-    var out = { ok: false, length: 0, status: 0, error: null };
-    try {
-      var xhr = new XMLHttpRequest();
-      xhr.open('GET', blobUrl, false); // sync on purpose, we are in Worker constructor path
-      xhr.send(null);
-      out.status = xhr.status || 0;
-      var txt = xhr.responseText || '';
-      out.length = txt.length;
-      out.ok = true;
-      return out;
+      return s;
     } catch (e) {
-      out.error = e;
-      return out;
+      return '__error__';
     }
   }
 
-  function makeBootstrapWorkerUrl() {
-    // Must be non-empty script content
-    // If we do not know emulator.js URL yet, do not attempt (return null).
-    if (!__EJS_EMU_MAIN_URL) return null;
-    try {
-      var boot = 'importScripts("' + __EJS_EMU_MAIN_URL + '");';
-      var fixed = new Blob([boot], { type: 'text/javascript' });
-      return (window.URL || window.webkitURL).createObjectURL(fixed);
-    } catch (e) {
-      derror('Failed to create bootstrap worker blob:', e);
-      return null;
-    }
-  }
+  function installBlobEmptyJsFix() {
+    if (__EJS_BLOB_PATCHED) return;
+    if (typeof Blob === 'undefined') return;
 
-  // Wrap Worker once, globally (so it also catches workers created after clicking Start Game)
-  var RealWorker = window.Worker;
-  if (RealWorker && !RealWorker.__ejs_wrapped) {
-    function WrappedWorker(url, opts) {
-      var shown = '';
-      try { shown = String(url); } catch (e) { shown = '[unstringable]'; }
+    var RealBlob = Blob;
 
+    // Replace global Blob constructor
+    // This catches the exact moment EmulatorJS tries to build a worker script Blob.
+    Blob = function (parts, options) {
       try {
-        dlog('Worker() called with:', { type: (typeof url), url: shown });
+        var opt = options || {};
+        var type = opt.type || '';
+        var jsLike = isJsMime(type);
 
-        // Only consider blob: URLs
-        if (isString(shown) && shown.indexOf('blob:') === 0) {
-          var meta = __ejs_blob_url_meta.get(shown) || null;
+        if (jsLike) {
+          var txt = partsToText(parts);
 
-          // Probe the worker script content to see if Firefox will treat it as empty
-          var probe = probeBlobWorkerSourceSync(shown);
-
-          // Decide "empty" if:
-          // - probe worked and length is 0, OR
-          // - probe failed (often revoked/invalid blob), OR
-          // - meta says size 0
-          var isEmpty =
-            (meta && meta.size === 0) ||
-            (probe && probe.ok && probe.length === 0) ||
-            (probe && !probe.ok);
-
-          if (DIAG) {
-            dlog('Worker(blob) meta+probe:', {
-              meta: meta,
-              probe: probe,
-              decidedEmpty: isEmpty,
-              emuMain: __EJS_EMU_MAIN_URL
-            });
-          }
-
-          if (isEmpty) {
-            // This is the exact warning path you see.
-            dwarn('Empty Worker blob detected. Swapping to bootstrap importScripts(emulator.js).');
-
-            var bootUrl = makeBootstrapWorkerUrl();
-            if (bootUrl) {
-              return new RealWorker(bootUrl, opts);
-            } else {
-              // If this happens, emulator.js URL was not set yet, which would be unexpected.
-              // Fall back to original so we do not crash the page.
-              dwarn('Bootstrap worker URL unavailable. Using original worker URL.');
+          // If the "code" is empty or whitespace only, replace it with a bootstrap.
+          // Note: if txt is '__non_string_parts__', we do not touch it.
+          if (txt !== '__non_string_parts__' && txt !== '__error__') {
+            var trimmed = String(txt || '').replace(/\uFEFF/g, '').trim();
+            if (trimmed.length === 0 && __EJS_EMU_MAIN_URL) {
+              // This is the exact scenario that triggers the Firefox warning.
+              var boot = 'importScripts("' + __EJS_EMU_MAIN_URL + '");';
+              dwarn('Detected empty JS Blob. Replacing with Worker bootstrap importScripts(emulator.js).', {
+                type: type,
+                emulator: __EJS_EMU_MAIN_URL
+              });
+              return new RealBlob([boot], { type: 'text/javascript' });
             }
           }
         }
       } catch (e) {
-        derror('Worker wrapper error:', e);
+        derror('Blob patch error:', e);
       }
 
+      return new RealBlob(parts, options);
+    };
+
+    // Preserve prototype/props so instanceof Blob keeps behaving
+    Blob.prototype = RealBlob.prototype;
+    try { Object.setPrototypeOf(Blob, RealBlob); } catch (e) {}
+
+    __EJS_BLOB_PATCHED = true;
+    dlog('Installed Blob() empty-JS fix');
+  }
+
+  // -------------------------------------------------
+  // Optional DIAG: Worker wrapper logs only
+  // -------------------------------------------------
+  function installWorkerLogger() {
+    var RealWorker = window.Worker;
+    if (!RealWorker || RealWorker.__ejs_logged) return;
+
+    function WrappedWorker(url, opts) {
+      try {
+        var shown = '';
+        try { shown = String(url); } catch (e) { shown = '[unstringable]'; }
+        dlog('Worker() called with:', { type: (typeof url), url: shown });
+      } catch (e) {}
       return new RealWorker(url, opts);
     }
 
-    WrappedWorker.__ejs_wrapped = true;
+    WrappedWorker.__ejs_logged = true;
     window.Worker = WrappedWorker;
-    window.Worker.__ejs_wrapped = true;
-    dlog('Installed Worker() wrapper (probe + empty-blob fix)');
+    window.Worker.__ejs_logged = true;
+
+    dlog('Installed Worker() logger');
   }
 
   async function start() {
@@ -350,12 +304,15 @@
 
     assertRequiredGlobals();
 
-    // Stable base URL without query
     var emuMainNoQuery = window.EJS_pathtodata + 'emulator.js';
     var emuUrl = emuMainNoQuery + '?v=0.4.23';
 
-    // Set the global main URL used by the Worker bootstrap fixer
+    // Set main URL for bootstrap
     __EJS_EMU_MAIN_URL = emuMainNoQuery;
+
+    // Install fixes before emulator.js runs
+    installBlobEmptyJsFix();
+    installWorkerLogger();
 
     // -------------------------------------------------
     // Emscripten Module hints (set BEFORE emulator.js runs)
@@ -367,15 +324,14 @@
         return window.EJS_pathtodata + path;
       };
 
-      // Critical: tell Emscripten what the main script URL is
       window.Module.mainScriptUrlOrBlob = emuMainNoQuery;
 
-      // Hard hints some builds look for
+      // Some builds look for these
       window.Module.pthreadMainRuntimeThreadScript = emuMainNoQuery;
       window.Module.pthreadWorkerUrl = emuMainNoQuery;
       window.Module.pthreadWorkerFile = emuMainNoQuery;
 
-      // Strongly discourage any pool creation
+      // Discourage pools
       window.Module.PTHREAD_POOL_SIZE = 0;
       window.Module.pthreadPoolSize = 0;
 
@@ -397,7 +353,7 @@
       throw new Error('emulator.js failed to load: ' + emuUrl);
     }
 
-    // Give emulator.js a moment to attach globals
+    // Wait for constructor
     var ctor = null;
     for (var i = 0; i < 80; i++) {
       ctor = pickCtor();
@@ -416,17 +372,13 @@
     dlog('Picked constructor:', ctor && ctor.name ? ctor.name : '(anonymous)');
 
     var cfg = buildCfg();
-
-    // Make biosUrl absolute if provided and relative
     if (cfg && cfg.biosUrl) cfg.biosUrl = absolutizeMaybe(cfg.biosUrl);
 
     dlog('Final cfg:', cfg);
 
-    // Create emulator instance
     var inst = new ctor(window.EJS_player, cfg);
     window.EJS_emulator = inst;
 
-    // Optional hook
     if (defined(window.EJS_onGameStart) && inst && typeof inst.on === 'function') {
       inst.on('start-game', window.EJS_onGameStart);
     }
