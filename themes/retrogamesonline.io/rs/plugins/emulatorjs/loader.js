@@ -193,16 +193,54 @@
     return s.length === 0;
   }
 
-  function makeExecutableWorkerStub(importUrl) {
+  function makeExecutableWorkerStub(importUrl, fallbackUrl, isModuleWorker) {
     var target = isString(importUrl) ? importUrl : "";
+    var fallback = isString(fallbackUrl) ? fallbackUrl : "";
+    var isModule = !!isModuleWorker;
+
+    if (isModule) {
+      return [
+        "self.__ejsWorkerBootstrap = 1;",
+        "(async function(){",
+        "  try {",
+        "    if (" + JSON.stringify(target) + ") {",
+        "      await import(" + JSON.stringify(target) + ");",
+        "      return;",
+        "    }",
+        "    throw new Error('empty module worker target');",
+        "  } catch (e1) {",
+        "    try {",
+        "      if (" + JSON.stringify(fallback) + ") {",
+        "        await import(" + JSON.stringify(fallback) + ");",
+        "        return;",
+        "      }",
+        "      throw e1;",
+        "    } catch (e2) {",
+        "      setTimeout(function () { throw e2; }, 0);",
+        "    }",
+        "  }",
+        "})();"
+      ].join("\n");
+    }
+
     return [
       "self.__ejsWorkerBootstrap = 1;",
       "try {",
       "  if (typeof importScripts === 'function' && " + JSON.stringify(target) + ") {",
       "    importScripts(" + JSON.stringify(target) + ");",
+      "  } else {",
+      "    throw new Error('empty worker target');",
       "  }",
-      "} catch (e) {",
-      "  setTimeout(function () { throw e; }, 0);",
+      "} catch (e1) {",
+      "  try {",
+      "    if (typeof importScripts === 'function' && " + JSON.stringify(fallback) + ") {",
+      "      importScripts(" + JSON.stringify(fallback) + ");",
+      "    } else {",
+      "      throw e1;",
+      "    }",
+      "  } catch (e2) {",
+      "    setTimeout(function () { throw e2; }, 0);",
+      "  }",
       "}"
     ].join("\n");
   }
@@ -289,7 +327,7 @@
 
             var effectivelyEmpty = (obj.size === 0) || (src && isEffectivelyEmptyJs(src));
             if (effectivelyEmpty) {
-              var fixedSrc = makeExecutableWorkerStub(emuMainNoQuery);
+              var fixedSrc = makeExecutableWorkerStub(emuMainNoQuery, emuMainNoQuery, false);
               var fixed = new Blob([fixedSrc], { type: "text/javascript" });
               return real(fixed);
             }
@@ -376,16 +414,46 @@
       "    s = s.replace(/\\s+/g, '');",
       "    return s.length === 0;",
       "  }",
-      "  function makeStub(target){",
+      "  function makeStub(target, fallback, asModule){",
       "    target = isString(target) ? target : '';",
+      "    fallback = isString(fallback) ? fallback : '';",
+      "    var moduleWorker = !!asModule;",
+      "    if(moduleWorker){",
+      "      return [",
+      "        'self.__ejsWorkerBootstrap = 1;',",
+      "        '(async function(){',",
+      "        '  try {',",
+      "        '    if (' + JSON.stringify(target) + ') { await import(' + JSON.stringify(target) + '); return; }',",
+      "        '    throw new Error(\'empty module worker target\');',",
+      "        '  } catch (e1) {',",
+      "        '    try {',",
+      "        '      if (' + JSON.stringify(fallback) + ') { await import(' + JSON.stringify(fallback) + '); return; }',",
+      "        '      throw e1;',",
+      "        '    } catch (e2) {',",
+      "        '      setTimeout(function(){ throw e2; }, 0);',",
+      "        '    }',",
+      "        '  }',",
+      "        '})();'",
+      "      ].join('\\n');",
+      "    }",
       "    return [",
       "      'self.__ejsWorkerBootstrap = 1;',",
       "      'try {',",
       "      '  if (typeof importScripts === \'function\' && ' + JSON.stringify(target) + ') {',",
       "      '    importScripts(' + JSON.stringify(target) + ');',",
+      "      '  } else {',",
+      "      '    throw new Error(\'empty worker target\');',",
       "      '  }',",
-      "      '} catch (e) {',",
-      "      '  setTimeout(function(){ throw e; }, 0);',",
+      "      '} catch (e1) {',",
+      "      '  try {',",
+      "      '    if (typeof importScripts === \'function\' && ' + JSON.stringify(fallback) + ') {',",
+      "      '      importScripts(' + JSON.stringify(fallback) + ');',",
+      "      '    } else {',",
+      "      '      throw e1;',",
+      "      '    }',",
+      "      '  } catch (e2) {',",
+      "      '    setTimeout(function(){ throw e2; }, 0);',",
+      "      '  }',",
       "      '}'",
       "    ].join('\\n');",
       "  }",
@@ -432,7 +500,7 @@
       "            var src = '';",
       "            try{ if(isString(obj.__ejs_source_text)) src = obj.__ejs_source_text; }catch(e){}",
       "            if(obj.size===0 || (src && isEffectivelyEmptyJs(src))){",
-      "              return realCOU(new self.Blob([makeStub(EMU_MAIN)], {type:'text/javascript'}));",
+      "              return realCOU(new self.Blob([makeStub(EMU_MAIN, EMU_MAIN, false)], {type:'text/javascript'}));",
       "            }",
       "          }",
       "        }catch(e){}",
@@ -462,13 +530,13 @@
       "          var u = String(url||'');",
       "          var isModule = !!(opts && opts.type === 'module');",
       "          if(!u || u==='undefined' || u==='null'){",
-      "            var stubUrl = (self.URL||self.webkitURL).createObjectURL(new self.Blob([makeStub(EMU_MAIN)], {type:'text/javascript'}));",
+      "            var stubUrl = (self.URL||self.webkitURL).createObjectURL(new self.Blob([makeStub(EMU_MAIN, EMU_MAIN, false)], {type:'text/javascript'}));",
       "            if(self.__ejsProtectBlobUrl) self.__ejsProtectBlobUrl(stubUrl, 30000);",
       "            return new RealWorker(stubUrl, opts);",
       "          }",
       "          if(!isModule && u.indexOf('blob:')===0){",
       "            if(self.__ejsProtectBlobUrl) self.__ejsProtectBlobUrl(u, 30000);",
-      "            var tramp = (self.URL||self.webkitURL).createObjectURL(new self.Blob([makeStub(u)], {type:'text/javascript'}));",
+      "            var tramp = (self.URL||self.webkitURL).createObjectURL(new self.Blob([makeStub(u, EMU_MAIN, isModule)], {type:'text/javascript'}));",
       "            if(self.__ejsProtectBlobUrl) self.__ejsProtectBlobUrl(tramp, 30000);",
       "            return new RealWorker(tramp, opts);",
       "          }",
@@ -509,9 +577,9 @@
       }
     }
 
-    function makeImportWorkerUrl(targetUrl) {
+    function makeImportWorkerUrl(targetUrl, isModuleWorker) {
       try {
-        var src = makeExecutableWorkerStub(targetUrl);
+        var src = makeExecutableWorkerStub(targetUrl, emuMainNoQuery, !!isModuleWorker);
         var blob = new Blob([src], { type: "text/javascript" });
         var url = URLObj.createObjectURL(blob);
         if (window.__ejsProtectBlobUrl) window.__ejsProtectBlobUrl(url, 30000);
@@ -543,7 +611,7 @@
         }
 
         if (!isModule && isString(shown) && shown.indexOf("blob:") === 0) {
-          var wrapped = makeImportWorkerUrl(shown);
+          var wrapped = makeImportWorkerUrl(shown, isModule);
           if (wrapped) {
             return new RealWorker(wrapped, opts);
           }
@@ -662,3 +730,4 @@
     derror("loader.js fatal error stack:", e && e.stack ? e.stack : e);
   });
 })();
+
