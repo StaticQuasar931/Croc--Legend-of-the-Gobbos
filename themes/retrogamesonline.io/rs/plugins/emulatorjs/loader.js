@@ -318,19 +318,21 @@
       try {
         var isBlob = (typeof Blob !== "undefined") && (obj instanceof Blob);
         if (isBlob) {
-          var isJS = isLikelyJsMime(obj.type || "");
-          if (isJS) {
-            var src = "";
-            try {
-              if (isString(obj.__ejs_source_text)) src = obj.__ejs_source_text;
-            } catch (e) {}
+          var blobType = String(obj.type || "");
+          var isJS = isLikelyJsMime(blobType);
+          var src = "";
+          try {
+            if (isString(obj.__ejs_source_text)) src = obj.__ejs_source_text;
+          } catch (e) {}
 
-            var effectivelyEmpty = (obj.size === 0) || (src && isEffectivelyEmptyJs(src));
-            if (effectivelyEmpty) {
-              var fixedSrc = makeExecutableWorkerStub(emuMainNoQuery, emuMainNoQuery, false);
-              var fixed = new Blob([fixedSrc], { type: "text/javascript" });
-              return real(fixed);
-            }
+          var effectivelyEmpty = (obj.size === 0) || (src && isEffectivelyEmptyJs(src));
+          // Some EmulatorJS worker blobs arrive with an empty or odd MIME type in Firefox.
+          // If the blob body is empty, treat it as a broken worker script anyway.
+          if (effectivelyEmpty && (isJS || !blobType)) {
+            if (DIAG) dwarn("Replacing effectively-empty worker blob URL", { type: blobType, size: obj.size });
+            var fixedSrc = makeExecutableWorkerStub(emuMainNoQuery, emuMainNoQuery, false);
+            var fixed = new Blob([fixedSrc], { type: "text/javascript" });
+            return real(fixed);
           }
         }
       } catch (e) {}
@@ -496,10 +498,12 @@
       "      URLObj.createObjectURL = function(obj){",
       "        try{",
       "          var isBlob = (typeof self.Blob!=='undefined') && (obj instanceof self.Blob);",
-      "          if(isBlob && isLikelyJsMime(obj.type||'')){",
+      "          if(isBlob){",
+      "            var blobType = String(obj.type||'');",
+      "            var isJS = isLikelyJsMime(blobType);",
       "            var src = '';",
-      "            try{ if(isString(obj.__ejs_source_text)) src = obj.__ejs_source_text; }catch(e){}",
-      "            if(obj.size===0 || (src && isEffectivelyEmptyJs(src))){",
+      "            try{ if(isString(obj.__ejs_source_text)) src = obj.__ejs_source_text; }catch(e){ }",
+      "            if((obj.size===0 || (src && isEffectivelyEmptyJs(src))) && (isJS || !blobType)){",
       "              return realCOU(new self.Blob([makeStub(EMU_MAIN, EMU_MAIN, false)], {type:'text/javascript'}));",
       "            }",
       "          }",
@@ -730,4 +734,5 @@
     derror("loader.js fatal error stack:", e && e.stack ? e.stack : e);
   });
 })();
+
 
