@@ -180,7 +180,7 @@
 <body>
   <div id="staticMenu" role="region" aria-label="StaticQuasar menu">
     <a href="https://sites.google.com/view/staticquasar931/gm3z" target="_blank" rel="noopener">More Unblocked Games by Static</a>
-    <span id="closeStaticMenu" title="Hide temporarily">âœ•</span>
+    <span id="closeStaticMenu" title="Hide temporarily">X</span>
   </div>
 
   <div id="staticSlideMenu" aria-live="polite">
@@ -226,27 +226,9 @@
     console.log("[Croc] EJS_core:", window.EJS_core);
     console.log("[Croc] EJS_pathtodata:", window.EJS_pathtodata);
 
-    // -------------------------
-    // ROM assembly (same-origin)
-    // -------------------------
-    const ROM_PARTS = [
-      "./big_data/ps/psx/croc.pbp.001",
-      "./big_data/ps/psx/croc.pbp.002",
-      "./big_data/ps/psx/croc.pbp.003",
-      "./big_data/ps/psx/croc.pbp.004",
-      "./big_data/ps/psx/croc.pbp.005",
-      "./big_data/ps/psx/croc.pbp.006",
-      "./big_data/ps/psx/croc.pbp.007",
-      "./big_data/ps/psx/croc.pbp.008",
-      "./big_data/ps/psx/croc.pbp.009"
-    ];
+    window.EJS_gameUrl = "./virtual/croc.pbp";
+    console.log("[Croc] EJS_gameUrl:", window.EJS_gameUrl);
 
-    function fmtMB(bytes){
-      const mb = bytes / (1024 * 1024);
-      return mb.toFixed(mb >= 10 ? 0 : 1) + " MB";
-    }
-
-    // Loader state so it can NEVER come back after removal
     let ROM_STATUS_REMOVED = false;
     let ROM_STATUS_HIDDEN = false;
 
@@ -275,7 +257,7 @@
       const el = document.getElementById("romStatus");
       if (!el) { ROM_STATUS_REMOVED = true; return; }
 
-      ROM_STATUS_HIDDEN = true;   // stop future UI updates immediately
+      ROM_STATUS_HIDDEN = true;
       el.classList.add("exit");
 
       setTimeout(() => {
@@ -284,97 +266,40 @@
       }, 700);
     }
 
-    async function fetchPart(url, idx, total, loadedSoFar, totalBytesKnown) {
-      const label = "Downloading game files";
-      const sub = "Part " + idx + " of " + total;
-
-      const res = await fetch(url, { cache: "no-store" });
-      if (!res.ok) throw new Error("Failed to fetch ROM part: " + url + " (" + res.status + ")");
-
-      const lenHeader = res.headers.get("content-length");
-      const partSize = lenHeader ? parseInt(lenHeader, 10) : 0;
-
-      // No streaming support fallback
-      if (!res.body || !res.body.getReader) {
-        setStatusUI(label, sub, ((idx - 1) / total) * 90, "Fetching " + url.split("/").pop());
-        const ab = await res.arrayBuffer();
-        return { bytes: new Uint8Array(ab), partSize: ab.byteLength };
+    async function ensureVirtualGameBridge() {
+      if (!("serviceWorker" in navigator)) {
+        throw new Error("This browser does not support Service Workers, which are required for split-file game loading.");
       }
 
-      const reader = res.body.getReader();
-      const chunks = [];
-      let received = 0;
+      setStatusUI("Preparing game file", "Starting split-file bridge...", 8, "Keeping each game file under 20 MB");
+      await navigator.serviceWorker.register("./sw.js?cb=20260310", { scope: "./" });
+      await navigator.serviceWorker.ready;
 
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      if (!navigator.serviceWorker.controller) {
+        await new Promise((resolve) => {
+          let settled = false;
+          const finish = () => {
+            if (settled) return;
+            settled = true;
+            resolve();
+          };
 
-        chunks.push(value);
-        received += value.byteLength;
-
-        const knownTotal = totalBytesKnown > 0 ? totalBytesKnown : 0;
-        const numer = loadedSoFar + received;
-        const denom = knownTotal > 0 ? knownTotal : 1;
-
-        const pct = knownTotal > 0
-          ? (numer / denom) * 90
-          : ((idx - 1) / total) * 90 + (received / Math.max(partSize || received || 1, 1)) * (90 / total);
-
-        const extra = (knownTotal > 0)
-          ? (fmtMB(numer) + " / " + fmtMB(knownTotal))
-          : ("Downloaded " + fmtMB(received) + (partSize ? (" / " + fmtMB(partSize)) : ""));
-
-        setStatusUI(label, sub, pct, extra);
+          navigator.serviceWorker.addEventListener("controllerchange", finish, { once: true });
+          setTimeout(finish, 1500);
+        });
       }
 
-      const out = new Uint8Array(received);
-      let off = 0;
-      for (const c of chunks) { out.set(c, off); off += c.byteLength; }
-      return { bytes: out, partSize: received };
-    }
-
-    async function assembleRom(parts) {
-      setStatusUI("Preparing game file", "Checking file list...", 2, parts.length + " parts");
-
-      // Try to get full known size via HEAD
-      let totalKnown = 0;
-      try {
-        const heads = await Promise.all(parts.map(async (p) => {
-          try {
-            const r = await fetch(p, { method: "HEAD", cache: "no-store" });
-            if (!r.ok) return 0;
-            const cl = r.headers.get("content-length");
-            return cl ? parseInt(cl, 10) : 0;
-          } catch (e) { return 0; }
-        }));
-        totalKnown = heads.reduce((a,b)=>a+(b||0), 0);
-      } catch (e) {}
-
-      let loadedSoFar = 0;
-      const bufs = [];
-
-      for (let i = 0; i < parts.length; i++) {
-        const got = await fetchPart(parts[i], i + 1, parts.length, loadedSoFar, totalKnown);
-        bufs.push(got.bytes);
-        loadedSoFar += got.partSize || got.bytes.byteLength || 0;
+      if (!navigator.serviceWorker.controller) {
+        const reloadKey = "sq931_virtual_pbp_reload";
+        if (sessionStorage.getItem(reloadKey) !== "1") {
+          sessionStorage.setItem(reloadKey, "1");
+          setStatusUI("Preparing game file", "Finishing split-file setup...", 12, "Reloading once so the virtual game file can activate.");
+          location.reload();
+          return new Promise(() => {});
+        }
       }
 
-      setStatusUI("Assembling game file", "Stitching parts...", 92, fmtMB(loadedSoFar));
-
-      let total = 0;
-      for (const b of bufs) total += b.byteLength;
-
-      const out = new Uint8Array(total);
-      let off = 0;
-      for (const b of bufs) {
-        out.set(b, off);
-        off += b.byteLength;
-      }
-
-      setStatusUI("Finalizing", "Creating in-browser file...", 97, fmtMB(total));
-
-      const blob = new Blob([out], { type: "application/octet-stream" });
-      return URL.createObjectURL(blob);
+      sessionStorage.removeItem("sq931_virtual_pbp_reload");
     }
 
     function loadLoaderJs() {
@@ -387,41 +312,29 @@
       });
     }
 
-    // Strong start detection:
-    // 1) EmulatorJS callback (if it fires)
-    // 2) Canvas appears and has non-zero size
-    // 3) Failsafe timeout
     (function boot(){
       let done = false;
       function hideOnce(){
         if (done) return;
         done = true;
 
-        // Hide thumbnail too
         const t = document.getElementById("retroGameThumbImg");
         if (t) t.style.display = "none";
 
         hideStatusPermanent();
       }
 
-      // Provide/override game-start callback in a safe way
       window.EJS_onGameStart = function(){
         hideOnce();
       };
 
       (async function(){
         try{
-          setStatusUI("Preparing game file", "Starting...", 1, "");
-
-          const blobUrl = await assembleRom(ROM_PARTS);
-          window.EJS_gameUrl = blobUrl;
-          console.log("[Croc] EJS_gameUrl (blob):", blobUrl);
-
-          setStatusUI("Starting emulator", "Launching...", 99, "Almost there...");
-
+          await ensureVirtualGameBridge();
+          setStatusUI("Starting emulator", "Opening split virtual game file...", 20, "The game is still split on disk. The browser now sees one virtual file.");
           await loadLoaderJs();
+          setStatusUI("Starting emulator", "Waiting for video output...", 95, "If this still hangs, the next console error should be more specific.");
 
-          // Backup start detection: canvas is created and is usable
           const root = document.getElementById("retroGame");
           const observer = new MutationObserver(() => {
             const canvas = document.querySelector("#retroGame canvas");
@@ -432,12 +345,10 @@
           });
           if (root) observer.observe(root, { childList:true, subtree:true });
 
-          // Final failsafe: hide no matter what after 25s post-loader
           setTimeout(hideOnce, 25000);
 
         } catch (e){
           console.error("[Croc] Boot failed:", e);
-          // In failure cases, keep it visible with error message (do NOT remove)
           ROM_STATUS_HIDDEN = false;
           setStatusUI("Game failed to load", (e && e.message ? e.message : String(e)), 0, "Open Console for details.");
         }
@@ -469,7 +380,7 @@
       if (btn) btn.onclick = hideFor3m;
     })();
 
-    // Rotator: Google Form â†’ Discord â†’ Instagram
+    // Rotator: Google Form -> Discord -> Instagram
     (function(){
       const wrap = document.getElementById("staticSlideMenu");
       const a    = document.getElementById("staticSlideLink");
@@ -548,11 +459,14 @@
     <h1>Croc: Legend of the Gobbos Unblocked</h1>
     <p>
       Play Croc: Legend of the Gobbos unblocked directly in your browser with a school-safe setup designed to work on Chromebooks and typical school networks.
-      This page loads the Croc PBP from the same GitHub Pages site by splitting it into multiple parts for best compatibility.
+      This page loads the Croc PBP directly from the same GitHub Pages site for better stability and compatibility.
       Keywords: static, staticquasar, staticquasar931, static 931, staticq, staticq931, 931, unblocked, unbl0cked, school-safe, working at school, croc unblocked, croc g@me.
     </p>
   </div>
 </body>
 </html>
+
+
+
 
 
